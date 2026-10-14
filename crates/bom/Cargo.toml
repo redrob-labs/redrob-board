@@ -1,0 +1,18 @@
+[package]
+name = "board-bom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Bill of materials and pick-and-place CSV files for Redrob Board"
+
+[dependencies]
+board-layout = { workspace = true }
+board-netlist = { workspace = true }
+
+[dev-dependencies]
+board-designs = { workspace = true }
+
+[lints]
+workspace = true

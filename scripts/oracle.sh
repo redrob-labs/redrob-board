@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
-# Run the stage-1 oracle: export every fixture to KiCad, run kicad-cli DRC, compare counts.
+# Stage gates against the oracle: export every fixture to KiCad, run its DRC and compare counts
+# (stage 1), then plot its Gerbers and drill and require pixel/hole identity with ours (stage 4).
 # usage: scripts/oracle.sh [outdir]   (needs cargo and kicad-cli on PATH)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-OUT="${1:-${KIROCREW_SCRATCH:-target}/oracle}"
+OUT="${1:-target/oracle}"
 rm -rf "$OUT"
-cargo run -q -p board-oracle --bin board-fixtures -- "$OUT"
+cargo build -q -p board-oracle -p board-kicad -p board-gerber
+BIN=target/debug
+"$BIN/board-fixtures" "$OUT"
 for board in "$OUT"/*.board.json; do
   name="$(basename "$board" .board.json)"
-  cargo run -q -p board-kicad --bin board-kicad-export -- "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"
+  "$BIN/board-kicad-export" "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"
   (cd "$OUT/$name" && kicad-cli pcb drc --format json --severity-all --units mm -o drc.json board.kicad_pcb >/dev/null)
+  mkdir -p "$OUT/$name/fab"
+  kicad-cli pcb export gerbers --layers F.Cu,B.Cu,Edge.Cuts,F.Mask,B.Mask,F.Paste --no-x2 --no-netlist -o "$OUT/$name/fab/" "$OUT/$name/board.kicad_pcb" >/dev/null
+  kicad-cli pcb export drill --format excellon --excellon-units mm --excellon-zeros-format decimal -o "$OUT/$name/fab/" "$OUT/$name/board.kicad_pcb" >/dev/null
 done
 python3 scripts/oracle_compare.py "$OUT"
+status=0
+for fab in "$OUT"/*.fab; do
+  name="$(basename "$fab" .fab)"
+  for f in "$fab"/*; do
+    "$BIN/board-gerber-compare" "$f" "$OUT/$name/fab/$(basename "$f")" || status=1
+  done
+done
+exit $status

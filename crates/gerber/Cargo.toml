@@ -15,3 +15,7 @@ thiserror = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "board-gerber-compare"
+path = "src/main.rs"

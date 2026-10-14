@@ -7,6 +7,8 @@ use std::process::ExitCode;
 use board_designs::fixtures::{Fixture, divider_netlist, divider_placed, fixtures, sensor_node_hand};
 use board_designs::sensor_node;
 use board_drc::{Rules, check, summary};
+use board_gerber::{export_drill, export_layer};
+use board_layout::Layer;
 use board_route::{RouteRules, route};
 
 /// Fixtures that need the router: the placed boards, routed to completion. KiCad must find them
@@ -40,9 +42,20 @@ fn main() -> ExitCode {
         let violations = check(&f.board, &f.netlist, &rules);
         let counts: BTreeMap<String, usize> = summary(&violations).into_iter().map(|(r, n)| (format!("{r:?}"), n)).collect();
         let write = |suffix: &str, text: String| std::fs::write(out.join(format!("{}.{suffix}", f.name)), text);
+        // Fabrication outputs, named the way the oracle names its own so the script can pair them.
+        let fab = out.join(format!("{}.fab", f.name));
+        std::fs::create_dir_all(&fab).ok();
+        let fab_write = |name: &str, text: String| std::fs::write(fab.join(name), text);
         let result = write("board.json", f.board.to_json())
             .and_then(|_| write("netlist.json", f.netlist.to_json()))
-            .and_then(|_| write("drc.json", serde_json::to_string_pretty(&counts).expect("counts serialise")));
+            .and_then(|_| write("drc.json", serde_json::to_string_pretty(&counts).expect("counts serialise")))
+            .and_then(|_| fab_write("board-F_Cu.gtl", export_layer(&f.board, Layer::FrontCopper).write()))
+            .and_then(|_| fab_write("board-B_Cu.gbl", export_layer(&f.board, Layer::BackCopper).write()))
+            .and_then(|_| fab_write("board-F_Mask.gts", export_layer(&f.board, Layer::FrontMask).write()))
+            .and_then(|_| fab_write("board-B_Mask.gbs", export_layer(&f.board, Layer::BackMask).write()))
+            .and_then(|_| fab_write("board-F_Paste.gtp", export_layer(&f.board, Layer::FrontPaste).write()))
+            .and_then(|_| fab_write("board-Edge_Cuts.gm1", export_layer(&f.board, Layer::EdgeCuts).write()))
+            .and_then(|_| fab_write("board.drl", export_drill(&f.board)));
         if let Err(e) = result {
             eprintln!("{}: {e}", f.name);
             return ExitCode::from(2);

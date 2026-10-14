@@ -38,13 +38,16 @@ cargo test --workspace
 
 ## Status
 
-Stages 0 (bootstrap), 1 (footprint library, DRC), 2 (placement) and 3 (routing) done. The `oracle` workflow
+Stages 0 (bootstrap), 1 (footprint library, DRC), 2 (placement), 3 (routing) and 4 (manufacturing
+files) done. The `oracle` workflow
 exports the fixture boards to KiCad and requires KiCad's DRC counts to equal ours: clearance,
 track width, annular ring, drill size, shorts and unconnected items agree on four fixtures, front and
 back side. The placer puts the 14-part sensor node down with no courtyard overlap and 54% less
 wire length than the hand placement it is measured against (gate: 20%). The router completes the
 divider and both sensor-node placements on two layers with zero DRC violations, and KiCad agrees
-the routed sensor node is clean. Stages and their
+the routed sensor node is clean. Our Gerbers (copper, mask, paste, edge cuts) and Excellon drill
+files are compared with KiCad's plots of the same boards by rasterising both at 10 um with our own
+reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come from `board-bom`. Stages and their
 mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
 
 ## License

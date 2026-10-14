@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use board_geom::{Point, Polygon};
+use board_geom::{Point, Polygon, Rect, Segment};
 use board_layout::{Board, Layer, PadShape};
 use board_units::Nm;
 use thiserror::Error;
@@ -211,27 +211,250 @@ fn parse_mm(s: &str) -> Result<Nm, GerberError> {
 pub const OUTLINE_WIDTH: Nm = Nm::um(100);
 
 /// Render one layer of a board to a Gerber file.
+///
+/// Mask layers carry every pad on that side's copper at pad size (mask margin 0; vias tented).
+/// Paste layers carry surface-mount pads only.
 pub fn export_layer(board: &Board, layer: Layer) -> GerberFile {
     let mut g = GerberFile::new();
-    if layer == Layer::EdgeCuts {
-        outline(&mut g, &board.outline);
-        return g;
-    }
-    if layer.is_copper() {
-        for pad in board.all_pads() {
-            if !pad.layers.contains(&layer) {
-                continue;
+    match layer {
+        Layer::EdgeCuts => outline(&mut g, &board.outline),
+        l if l.is_copper() => {
+            for pad in board.all_pads() {
+                if pad.layers.contains(&l) {
+                    g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
+                }
             }
-            g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
+            for t in board.tracks.iter().filter(|t| t.layer == l) {
+                g.polyline(t.width, &[t.segment.a, t.segment.b], false);
+            }
+            for v in &board.vias {
+                g.flash(Aperture::Circle { diameter: v.diameter }, v.at);
+            }
         }
-        for t in board.tracks.iter().filter(|t| t.layer == layer) {
-            g.polyline(t.width, &[t.segment.a, t.segment.b], false);
+        Layer::FrontMask | Layer::BackMask | Layer::FrontPaste | Layer::BackPaste => {
+            let copper = if matches!(layer, Layer::FrontMask | Layer::FrontPaste) { Layer::FrontCopper } else { Layer::BackCopper };
+            let paste = matches!(layer, Layer::FrontPaste | Layer::BackPaste);
+            for pad in board.all_pads() {
+                if pad.layers.contains(&copper) && !(paste && pad.drill.is_some()) {
+                    g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
+                }
+            }
         }
-        for v in &board.vias {
-            g.flash(Aperture::Circle { diameter: v.diameter }, v.at);
-        }
+        _ => {}
     }
     g
+}
+
+/// Excellon drill file: every plated hole (through-hole pads, vias) and non-plated hole, in
+/// millimetres with decimal coordinates.
+pub fn export_drill(board: &Board) -> String {
+    let mut holes: Vec<(Nm, Point)> = Vec::new();
+    for pad in board.all_pads() {
+        if let Some(d) = pad.drill {
+            holes.push((d, pad.center));
+        }
+    }
+    for v in &board.vias {
+        holes.push((v.drill, v.at));
+    }
+    let mut tools: Vec<Nm> = holes.iter().map(|h| h.0).collect();
+    tools.sort();
+    tools.dedup();
+    let mut s = String::from("M48\nFMAT,2\nMETRIC\n");
+    for (i, t) in tools.iter().enumerate() {
+        writeln!(s, "T{}C{}", i + 1, t.mm_string()).unwrap();
+    }
+    s.push_str("%\nG90\nG05\n");
+    for (i, t) in tools.iter().enumerate() {
+        writeln!(s, "T{}", i + 1).unwrap();
+        for (_, p) in holes.iter().filter(|h| h.0 == *t) {
+            writeln!(s, "X{}Y{}", p.x.mm_string(), p.y.mm_string()).unwrap();
+        }
+    }
+    s.push_str("T0\nM30\n");
+    s
+}
+
+/// Read an Excellon file (decimal millimetres, as `export_drill` and the oracle write it) into a
+/// sorted list of (diameter, position) so two files compare as sets.
+pub fn parse_drill(text: &str) -> Result<Vec<(Nm, Point)>, GerberError> {
+    let mut tools: BTreeMap<u32, Nm> = BTreeMap::new();
+    let mut current: Option<Nm> = None;
+    let mut holes = Vec::new();
+    let mut in_header = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+        if line == "M48" {
+            in_header = true;
+            continue;
+        }
+        if line == "%" || line == "M95" {
+            in_header = false;
+            continue;
+        }
+        if line == "M30" || line == "M00" {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix('T') {
+            let (num, dia) = rest.split_once('C').unwrap_or((rest, ""));
+            let num: u32 = num.parse().map_err(|_| GerberError::Malformed(line.into()))?;
+            if in_header {
+                tools.insert(num, parse_mm(dia)?);
+            } else {
+                current = if num == 0 { None } else { Some(*tools.get(&num).ok_or_else(|| GerberError::Malformed(line.into()))?) };
+            }
+            continue;
+        }
+        if let Some(coords) = line.strip_prefix('X') {
+            let (x, y) = coords.split_once('Y').ok_or_else(|| GerberError::Malformed(line.into()))?;
+            let d = current.ok_or_else(|| GerberError::Malformed(format!("hole before tool select: {line}")))?;
+            holes.push((d, Point::new(parse_mm(x)?, parse_mm(y)?)));
+            continue;
+        }
+        if line == "INCH" {
+            return Err(GerberError::Unsupported("inch drill file".into()));
+        }
+        if line.starts_with('G') || line == "FMAT,2" || line == "METRIC" {
+            continue;
+        }
+        return Err(GerberError::Unsupported(line.into()));
+    }
+    holes.sort_by_key(|(d, p)| (d.0, p.x.0, p.y.0));
+    Ok(holes)
+}
+
+/// A bitmap of a Gerber file: pixel (x, y) is set when its centre is inside any drawn shape.
+pub struct Raster {
+    pub origin: Point,
+    pub pitch: Nm,
+    pub width: usize,
+    pub height: usize,
+    pub bits: Vec<bool>,
+}
+
+impl Raster {
+    pub fn count(&self) -> usize {
+        self.bits.iter().filter(|b| **b).count()
+    }
+
+    /// Pixels set in exactly one of the two rasters (same origin/pitch/size required).
+    pub fn differing_pixels(&self, other: &Raster) -> usize {
+        assert!(self.width == other.width && self.height == other.height && self.origin == other.origin && self.pitch == other.pitch);
+        self.bits.iter().zip(&other.bits).filter(|(a, b)| a != b).count()
+    }
+}
+
+impl GerberFile {
+    /// Bounding box of everything drawn, including aperture extents.
+    pub fn bbox(&self) -> Option<Rect> {
+        let mut out: Option<Rect> = None;
+        let mut cur: Option<u32> = None;
+        let mut pos = Point::ORIGIN;
+        for op in &self.ops {
+            let mut extend = |r: Rect| out = Some(out.map_or(r, |o| o.union(&r)));
+            match op {
+                Op::Select(c) => cur = Some(*c),
+                Op::Move(p) => pos = *p,
+                Op::Flash(p) => {
+                    if let Some(a) = cur.and_then(|c| self.apertures.get(&c)) {
+                        let (w, h) = aperture_size(*a);
+                        extend(Rect::centered(*p, w, h));
+                    }
+                    pos = *p;
+                }
+                Op::Draw(p) => {
+                    if let Some(a) = cur.and_then(|c| self.apertures.get(&c)) {
+                        let (w, _) = aperture_size(*a);
+                        extend(Rect::from_points(pos, *p).inflate(w / 2));
+                    }
+                    pos = *p;
+                }
+            }
+        }
+        out
+    }
+
+    /// Rasterise onto a grid covering `area` at `pitch` (pixel centres at origin + k * pitch).
+    pub fn rasterise(&self, area: Rect, pitch: Nm) -> Raster {
+        let width = (area.width().0 / pitch.0) as usize + 1;
+        let height = (area.height().0 / pitch.0) as usize + 1;
+        let mut r = Raster { origin: area.min, pitch, width, height, bits: vec![false; width * height] };
+        let mut cur: Option<Aperture> = None;
+        let mut pos = Point::ORIGIN;
+        for op in &self.ops {
+            match op {
+                Op::Select(c) => cur = self.apertures.get(c).copied(),
+                Op::Move(p) => pos = *p,
+                Op::Flash(p) => {
+                    if let Some(a) = cur {
+                        paint(&mut r, Painted::Flash(a, *p));
+                    }
+                    pos = *p;
+                }
+                Op::Draw(p) => {
+                    if let Some(a) = cur {
+                        let (w, _) = aperture_size(a);
+                        paint(&mut r, Painted::Stroke(Segment::new(pos, *p), w / 2));
+                    }
+                    pos = *p;
+                }
+            }
+        }
+        r
+    }
+}
+
+fn aperture_size(a: Aperture) -> (Nm, Nm) {
+    match a {
+        Aperture::Circle { diameter } => (diameter, diameter),
+        Aperture::Rect { width, height } | Aperture::Obround { width, height } => (width, height),
+    }
+}
+
+enum Painted {
+    Flash(Aperture, Point),
+    Stroke(Segment, Nm),
+}
+
+fn paint(r: &mut Raster, shape: Painted) {
+    let bbox = match &shape {
+        Painted::Flash(a, p) => {
+            let (w, h) = aperture_size(*a);
+            Rect::centered(*p, w, h)
+        }
+        Painted::Stroke(s, hw) => s.bbox().inflate(*hw),
+    };
+    let lo = |v: Nm, o: Nm| ((v - o).0.max(0) as f64 / r.pitch.0 as f64).ceil() as i64;
+    let hi = |v: Nm, o: Nm| ((v - o).0 as f64 / r.pitch.0 as f64).floor() as i64;
+    let x0 = lo(bbox.min.x, r.origin.x);
+    let y0 = lo(bbox.min.y, r.origin.y);
+    let x1 = hi(bbox.max.x, r.origin.x).min(r.width as i64 - 1);
+    let y1 = hi(bbox.max.y, r.origin.y).min(r.height as i64 - 1);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let c = Point::new(r.origin.x + r.pitch * x, r.origin.y + r.pitch * y);
+            let inside = match &shape {
+                Painted::Flash(a, p) => match *a {
+                    Aperture::Circle { diameter } => c.squared_distance(*p) <= (diameter / 2).squared(),
+                    Aperture::Rect { width, height } => Rect::centered(*p, width, height).contains(c),
+                    Aperture::Obround { width, height } => {
+                        // Two semicircles joined by a rectangle along the longer side.
+                        let rad = width.min(height) / 2;
+                        let (ax, ay) = if width > height { ((width - height) / 2, Nm::ZERO) } else { (Nm::ZERO, (height - width) / 2) };
+                        let seg = Segment::new(p.offset(-ax, -ay), p.offset(ax, ay));
+                        seg.squared_distance_to_point(c) <= rad.squared()
+                    }
+                },
+                Painted::Stroke(s, hw) => s.squared_distance_to_point(c) <= hw.squared(),
+            };
+            if inside {
+                r.bits[y as usize * r.width + x as usize] = true;
+            }
+        }
+    }
 }
 
 fn outline(g: &mut GerberFile, poly: &Polygon) {
@@ -316,6 +539,48 @@ mod tests {
         assert_eq!(GerberFile::parse("%FSLAX24Y24*%%MOMM*%M02*"), Err(GerberError::Unsupported("coordinate format LAX24Y24".into())));
         assert_eq!(GerberFile::parse("%FSLAX46Y46*%%MOIN*%M02*"), Err(GerberError::Unsupported("unit IN".into())));
         assert!(matches!(GerberFile::parse("%FSLAX46Y46*%%MOMM*%G36*M02*"), Err(GerberError::Unsupported(_))));
+    }
+
+    #[test]
+    fn mask_paste_and_drill() {
+        let b = sample_board();
+        let flashes = |g: &GerberFile| g.ops.iter().filter(|o| matches!(o, Op::Flash(_))).count();
+        // R1 pads + J1 pads on the front; C1 is on the back.
+        assert_eq!(flashes(&export_layer(&b, Layer::FrontMask)), 5);
+        assert_eq!(flashes(&export_layer(&b, Layer::FrontPaste)), 2);
+        assert_eq!(flashes(&export_layer(&b, Layer::BackMask)), 5); // C1 + J1 through-hole
+        assert_eq!(flashes(&export_layer(&b, Layer::BackPaste)), 2);
+
+        let drill = export_drill(&b);
+        assert!(drill.starts_with("M48\nFMAT,2\nMETRIC\nT1C1\n%\n"), "{drill}");
+        let holes = parse_drill(&drill).unwrap();
+        assert_eq!(holes.len(), 3);
+        assert_eq!(holes[0], (Nm::mm(1), Point::mm(12, 2)));
+        let kicad_style =
+            "M48\n; DRILL file {KiCad 9}\nFMAT,2\nMETRIC\n; #@! TA.AperFunction,Plated,PTH,ViaDrill\nT1C0.300\n%\nG90\nG05\nT1\nX3.9Y12.1\nT0\nM30\n";
+        assert_eq!(parse_drill(kicad_style).unwrap(), vec![(Nm::um(300), Point::new(Nm::um(3900), Nm::um(12100)))]);
+    }
+
+    #[test]
+    fn raster_matches_shapes() {
+        let b = sample_board();
+        let g = export_layer(&b, Layer::FrontCopper);
+        let area = Rect::from_points(Point::ORIGIN, Point::mm(20, 10));
+        let r = g.rasterise(area, Nm::um(10));
+        // One 0.6 x 0.5 pad covers 61 x 51 pixel centres; two of them plus three 1.7 mm circles.
+        let mut circle = 0;
+        for y in -85..=85_i64 {
+            for x in -85..=85_i64 {
+                if x * x + y * y <= 85 * 85 {
+                    circle += 1;
+                }
+            }
+        }
+        assert_eq!(r.count(), 2 * 61 * 51 + 3 * circle);
+        // The same drawing written and parsed back rasterises identically.
+        let again = GerberFile::parse(&g.write()).unwrap().rasterise(area, Nm::um(10));
+        assert_eq!(r.differing_pixels(&again), 0);
+        assert_eq!(g.bbox(), Some(Rect::from_points(Point::new(Nm::um(4200), Nm::um(1150)), Point::new(Nm::um(17930), Nm::um(5250)))));
     }
 
     #[test]

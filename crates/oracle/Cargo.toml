@@ -10,6 +10,8 @@ description = "Writes the fixture boards and our DRC counts for the KiCad oracle
 [dependencies]
 board-designs = { workspace = true }
 board-drc = { workspace = true }
+board-gerber = { workspace = true }
+board-layout = { workspace = true }
 board-route = { workspace = true }
 serde_json = { workspace = true }
 

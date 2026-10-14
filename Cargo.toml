@@ -30,6 +30,7 @@ board-kicad = { path = "crates/kicad" }
 board-place = { path = "crates/place" }
 board-route = { path = "crates/route" }
 board-oracle = { path = "crates/oracle" }
+board-bom = { path = "crates/bom" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
