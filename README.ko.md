@@ -30,16 +30,20 @@ JavaScript 없음, 웹뷰 없음, 외부 EDA 바이너리 없음. 상류 도구(
 
 ```sh
 cargo test --workspace
+cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
+cargo run -p board-app          # 데스크톱 앱
 ```
 
 ## 상태
 
-0단계(부트스트랩)·1단계(풋프린트 라이브러리, DRC)·2단계(배치)·3단계(배선)·4단계(제조 파일) 완료. `oracle` 워크플로가 예제 보드를 KiCad로
+0단계(부트스트랩)·1단계(풋프린트 라이브러리, DRC)·2단계(배치)·3단계(배선)·4단계(제조 파일)·5단계(앱) 완료. `oracle` 워크플로가 예제 보드를 KiCad로
 내보내 KiCad DRC 위반 수와 우리 수가 같아야 통과합니다: 간격·트랙 폭·고리·드릴·단락·미연결이 앞뒷면 예제 넷에서
 일치. 배치 엔진은 14부품 센서 노드를 겹침 없이, 손 배치보다 배선 길이 54% 짧게 놓습니다(게이트 20%). 라우터는 분배기와 센서 노드
 두 배치를 2층으로 끝까지 배선해 DRC 위반 0이고, KiCad도 배선된 센서 노드를 깨끗하다고 판정합니다. 우리 거버(동박·마스크·페이스트·외곽)와 드릴 파일은
 같은 보드를 KiCad가 그린 것과 우리 리더로 10um 래스터화해 비교합니다: 42개 파일 전부 픽셀 일치. BOM·픽앤플레이스
-CSV는 `board-bom`이 냅니다.
+CSV는 `board-bom`이 냅니다. `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`이
+전체 흐름을 돌려 배선 완주·DRC 0일 때만 종료 코드 0을 냅니다. `redrob-board`(egui) 앱은 같은 일을 버튼으로 하고,
+헤드리스 `egui_kittest` 테스트가 그 버튼들을 눌러 렌더 결과를 `crates/app/tests/snapshots/sensor_node_routed.png`와 비교합니다.
 단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
 
 ## 라이선스

@@ -34,12 +34,14 @@ called done. Nothing of theirs ships in the product. See [UPSTREAM.md](./UPSTREA
 
 ```sh
 cargo test --workspace
+cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
+cargo run -p board-app          # the desktop app
 ```
 
 ## Status
 
-Stages 0 (bootstrap), 1 (footprint library, DRC), 2 (placement), 3 (routing) and 4 (manufacturing
-files) done. The `oracle` workflow
+Stages 0 (bootstrap), 1 (footprint library, DRC), 2 (placement), 3 (routing), 4 (manufacturing
+files) and 5 (app) done. The `oracle` workflow
 exports the fixture boards to KiCad and requires KiCad's DRC counts to equal ours: clearance,
 track width, annular ring, drill size, shorts and unconnected items agree on four fixtures, front and
 back side. The placer puts the 14-part sensor node down with no courtyard overlap and 54% less
@@ -47,7 +49,11 @@ wire length than the hand placement it is measured against (gate: 20%). The rout
 divider and both sensor-node placements on two layers with zero DRC violations, and KiCad agrees
 the routed sensor node is clean. Our Gerbers (copper, mask, paste, edge cuts) and Excellon drill
 files are compared with KiCad's plots of the same boards by rasterising both at 10 um with our own
-reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come from `board-bom`. Stages and their
+reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come from `board-bom`.
+`board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
+runs the whole flow and exits 0 only when routing is complete and DRC is clean; `redrob-board`
+(egui) does the same from buttons, and a headless `egui_kittest` test drives those buttons and
+compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. Stages and their
 mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
 
 ## License

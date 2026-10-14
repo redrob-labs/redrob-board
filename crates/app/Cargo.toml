@@ -1,0 +1,31 @@
+[package]
+name = "board-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Redrob Board desktop app (egui): place, route, check and export from one window"
+default-run = "redrob-board"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-layout = { workspace = true }
+board-netlist = { workspace = true }
+board-designs = { workspace = true }
+board-drc = { workspace = true }
+board-place = { workspace = true }
+board-agent = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "redrob-board"
+path = "src/main.rs"
