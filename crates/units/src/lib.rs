@@ -47,6 +47,32 @@ impl Nm {
         self.0 as f64 / Self::NM_PER_MM as f64
     }
 
+    /// Parse a decimal millimetre string exactly: `"0.254"`, `"-1.5"`, `".5"`, `"2"`. At most six
+    /// decimals; anything finer than a nanometre, or any other character, is rejected.
+    pub fn parse_mm(s: &str) -> Option<Nm> {
+        let (neg, s) = match s.strip_prefix('-') {
+            Some(rest) => (true, rest),
+            None => (false, s.strip_prefix('+').unwrap_or(s)),
+        };
+        let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
+        if frac.len() > 6 || (whole.is_empty() && frac.is_empty()) {
+            return None;
+        }
+        if !whole.chars().all(|c| c.is_ascii_digit()) || !frac.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let whole: i64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
+        let frac: i64 = if frac.is_empty() { 0 } else { format!("{frac:0<6}").parse().ok()? };
+        let v = whole * Self::NM_PER_MM + frac;
+        Some(Nm(if neg { -v } else { v }))
+    }
+
+    /// Millimetres as text without the unit: `"0.254"`, `"-1.5"`, `"2"`.
+    pub fn mm_string(self) -> String {
+        let s = self.to_string();
+        s.trim_end_matches("mm").to_string()
+    }
+
     pub const fn abs(self) -> Nm {
         Nm(self.0.abs())
     }
@@ -135,6 +161,18 @@ mod tests {
         assert_eq!(Nm::mil(10).to_string(), "0.254mm");
         assert_eq!(Nm(-1_500_000).to_string(), "-1.5mm");
         assert_eq!(Nm(1).to_string(), "0.000001mm");
+    }
+
+    #[test]
+    fn parse_mm_text() {
+        assert_eq!(Nm::parse_mm("0.254"), Some(Nm::mil(10)));
+        assert_eq!(Nm::parse_mm("-1.5"), Some(Nm(-1_500_000)));
+        assert_eq!(Nm::parse_mm(".5"), Some(Nm::um(500)));
+        assert_eq!(Nm::parse_mm("2"), Some(Nm::mm(2)));
+        assert_eq!(Nm::parse_mm("1.2345678"), None);
+        assert_eq!(Nm::parse_mm("abc"), None);
+        assert_eq!(Nm::parse_mm(""), None);
+        assert_eq!(Nm::um(600).mm_string(), "0.6");
     }
 
     #[test]

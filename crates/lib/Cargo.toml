@@ -1,0 +1,17 @@
+[package]
+name = "board-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Footprint library for Redrob Board, with a reader for KiCad .kicad_mod files"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-layout = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -35,8 +35,33 @@ impl Layer {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PadShape {
-    Circle { diameter: Nm },
-    Rect { width: Nm, height: Nm },
+    Circle {
+        diameter: Nm,
+    },
+    Rect {
+        width: Nm,
+        height: Nm,
+    },
+    /// Rectangle with rounded corners of the given radius.
+    RoundRect {
+        width: Nm,
+        height: Nm,
+        radius: Nm,
+    },
+    /// Stadium: a rectangle whose short sides are full semicircles.
+    Oval {
+        width: Nm,
+        height: Nm,
+    },
+}
+
+impl PadShape {
+    pub fn size(self) -> (Nm, Nm) {
+        match self {
+            PadShape::Circle { diameter } => (diameter, diameter),
+            PadShape::Rect { width, height } | PadShape::RoundRect { width, height, .. } | PadShape::Oval { width, height } => (width, height),
+        }
+    }
 }
 
 /// A pad in footprint-local coordinates (origin at the footprint anchor, no rotation).
@@ -62,10 +87,8 @@ impl Pad {
 
     /// Bounding box in local coordinates.
     pub fn bbox(&self) -> Rect {
-        match self.shape {
-            PadShape::Circle { diameter } => Rect::centered(self.at, diameter, diameter),
-            PadShape::Rect { width, height } => Rect::centered(self.at, width, height),
-        }
+        let (w, h) = self.shape.size();
+        Rect::centered(self.at, w, h)
     }
 }
 
@@ -127,6 +150,8 @@ impl Placement {
                     refdes: self.refdes.clone(),
                     number: p.number.clone(),
                     center: self.to_board(p.at),
+                    shape: p.shape,
+                    quarter_turns: self.quarter_turns,
                     bbox,
                     layers: p.layers.iter().map(|l| self.layer(*l)).collect(),
                     drill: p.drill,
@@ -147,6 +172,9 @@ pub struct BoardPad {
     pub refdes: String,
     pub number: String,
     pub center: Point,
+    /// Shape in footprint-local orientation; rotate by `quarter_turns` to get board orientation.
+    pub shape: PadShape,
+    pub quarter_turns: u8,
     pub bbox: Rect,
     pub layers: Vec<Layer>,
     pub drill: Option<Nm>,

@@ -16,8 +16,18 @@ use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Aperture {
-    Circle { diameter: Nm },
-    Rect { width: Nm, height: Nm },
+    Circle {
+        diameter: Nm,
+    },
+    Rect {
+        width: Nm,
+        height: Nm,
+    },
+    /// Standard `O` aperture: a stadium.
+    Obround {
+        width: Nm,
+        height: Nm,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +91,7 @@ impl GerberFile {
             match a {
                 Aperture::Circle { diameter } => writeln!(s, "%ADD{code}C,{}*%", mm(*diameter)).unwrap(),
                 Aperture::Rect { width, height } => writeln!(s, "%ADD{code}R,{}X{}*%", mm(*width), mm(*height)).unwrap(),
+                Aperture::Obround { width, height } => writeln!(s, "%ADD{code}O,{}X{}*%", mm(*width), mm(*height)).unwrap(),
             }
         }
         s.push_str("G01*\n");
@@ -129,6 +140,9 @@ impl GerberFile {
                 } else if let Some(r) = def.strip_prefix("R,") {
                     let (w, h) = r.split_once('X').ok_or_else(|| GerberError::Malformed(cmd.into()))?;
                     Aperture::Rect { width: parse_mm(w)?, height: parse_mm(h)? }
+                } else if let Some(o) = def.strip_prefix("O,") {
+                    let (w, h) = o.split_once('X').ok_or_else(|| GerberError::Malformed(cmd.into()))?;
+                    Aperture::Obround { width: parse_mm(w)?, height: parse_mm(h)? }
                 } else {
                     return Err(GerberError::Unsupported(format!("aperture {def}")));
                 };
@@ -185,25 +199,12 @@ fn split_code(s: &str) -> Result<(u32, &str), GerberError> {
     Ok((code, &s[digits..]))
 }
 
-/// Millimetres with six decimals and no trailing zeros, as aperture definitions want them.
 fn mm(v: Nm) -> String {
-    let s = v.to_string();
-    s.trim_end_matches("mm").to_string()
+    v.mm_string()
 }
 
 fn parse_mm(s: &str) -> Result<Nm, GerberError> {
-    let (neg, s) = match s.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, s),
-    };
-    let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
-    if frac.len() > 6 || whole.is_empty() && frac.is_empty() {
-        return Err(GerberError::Malformed(s.into()));
-    }
-    let whole: i64 = if whole.is_empty() { 0 } else { whole.parse().map_err(|_| GerberError::Malformed(s.into()))? };
-    let frac: i64 = if frac.is_empty() { 0 } else { format!("{frac:0<6}").parse().map_err(|_| GerberError::Malformed(s.into()))? };
-    let v = whole * Nm::NM_PER_MM + frac;
-    Ok(Nm(if neg { -v } else { v }))
+    Nm::parse_mm(s).ok_or_else(|| GerberError::Malformed(s.into()))
 }
 
 /// Edge-cuts width factories conventionally expect.
@@ -221,12 +222,7 @@ pub fn export_layer(board: &Board, layer: Layer) -> GerberFile {
             if !pad.layers.contains(&layer) {
                 continue;
             }
-            let shape = if pad.bbox.width() == pad.bbox.height() && pad.drill.is_some() {
-                Aperture::Circle { diameter: pad.bbox.width() }
-            } else {
-                Aperture::Rect { width: pad.bbox.width(), height: pad.bbox.height() }
-            };
-            g.flash(shape, pad.center);
+            g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
         }
         for t in board.tracks.iter().filter(|t| t.layer == layer) {
             g.polyline(t.width, &[t.segment.a, t.segment.b], false);
@@ -242,11 +238,19 @@ fn outline(g: &mut GerberFile, poly: &Polygon) {
     g.polyline(OUTLINE_WIDTH, &poly.vertices, true);
 }
 
-/// Pad shape to aperture, for callers building Gerbers by hand.
-pub fn aperture_for(shape: PadShape) -> Aperture {
+/// Pad shape to a standard aperture, rotated by quarter turns.
+///
+/// Rounded rectangles have no standard aperture; they are emitted as plain rectangles until the
+/// stage-4 export adds aperture macros. Stage 4's pixel comparison against the oracle is what
+/// forces that change, so the approximation cannot ship unnoticed.
+pub fn aperture_for(shape: PadShape, quarter_turns: u8) -> Aperture {
+    let swap = quarter_turns % 2 == 1;
+    let (w, h) = shape.size();
+    let (w, h) = if swap { (h, w) } else { (w, h) };
     match shape {
         PadShape::Circle { diameter } => Aperture::Circle { diameter },
-        PadShape::Rect { width, height } => Aperture::Rect { width, height },
+        PadShape::Rect { .. } | PadShape::RoundRect { .. } => Aperture::Rect { width: w, height: h },
+        PadShape::Oval { .. } => Aperture::Obround { width: w, height: h },
     }
 }
 
@@ -286,7 +290,13 @@ mod tests {
         let text = g.write();
         assert!(text.contains("%ADD10R,0.6X0.5*%"));
         assert!(text.contains("%ADD11C,1.7*%"));
+        assert_eq!(
+            aperture_for(PadShape::Oval { width: Nm::mm(2), height: Nm::mm(1) }, 1),
+            Aperture::Obround { width: Nm::mm(1), height: Nm::mm(2) }
+        );
         assert!(text.contains("X4500000Y5000000D03*"));
+        let obround = "%FSLAX46Y46*%%MOMM*%%ADD10O,2X1*%D10*X0Y0D03*M02*";
+        assert_eq!(GerberFile::parse(obround).unwrap().apertures.get(&10), Some(&Aperture::Obround { width: Nm::mm(2), height: Nm::mm(1) }));
     }
 
     #[test]

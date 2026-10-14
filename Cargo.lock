@@ -31,6 +31,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-lib"
+version = "0.0.1"
+dependencies = [
+ "board-geom",
+ "board-layout",
+ "board-units",
+ "thiserror",
+]
+
+[[package]]
 name = "board-netlist"
 version = "0.0.1"
 dependencies = [
