@@ -326,7 +326,7 @@ fn inside_with_margin(outline: &Polygon, bbox: Rect, margin: Nm) -> bool {
     bbox.corners().iter().all(|c| outline.contains(*c) && outline.edges().all(|e| e.squared_distance_to_point(*c) >= margin.squared()))
 }
 
-/// For each net, how many extra copper islands exist beyond the one every pad should share.
+/// For each net, one violation per copper island beyond the first (the connections still missing).
 fn unrouted(items: &[Item], netlist: &Netlist) -> Vec<Violation> {
     let mut out = Vec::new();
     for net in &netlist.nets {
@@ -349,10 +349,13 @@ fn unrouted(items: &[Item], netlist: &Netlist) -> Vec<Violation> {
                 islands.entry(uf.find(i)).or_default().push(&m.name);
             }
         }
-        if islands.len() > 1 {
+        // One violation per missing connection, i.e. islands - 1: the number of ratsnest lines
+        // still to route, which is also how the oracle counts.
+        let groups: Vec<&Vec<&str>> = islands.values().collect();
+        for (i, island) in groups.iter().enumerate().skip(1) {
             out.push(Violation {
                 rule: Rule::Unrouted,
-                message: format!("net {} has {} unconnected islands: {:?}", net.name, islands.len(), islands.values().collect::<Vec<_>>()),
+                message: format!("net {}: {:?} not connected to {:?}", net.name, island, groups[i - 1]),
                 at: members[0].shape.anchor(),
             });
         }
@@ -426,8 +429,8 @@ mod tests {
     #[test]
     fn placed_but_unrouted_board_reports_only_unrouted_nets() {
         let v = check(&placed_board(), &divider(), &Rules::default());
-        assert_eq!(rules_of(&v), vec![Rule::Unrouted, Rule::Unrouted, Rule::Unrouted]);
-        assert_eq!(summary(&v).get(&Rule::Unrouted), Some(&3));
+        assert_eq!(rules_of(&v), vec![Rule::Unrouted; 4]); // VIN 1, OUT 2, GND 1 ratsnest lines
+        assert_eq!(summary(&v).get(&Rule::Unrouted), Some(&4));
     }
 
     #[test]

@@ -6,11 +6,14 @@ version = 4
 name = "board-designs"
 version = "0.0.1"
 dependencies = [
+ "board-drc",
+ "board-geom",
  "board-layout",
  "board-lib",
  "board-netlist",
  "board-schematic",
  "board-units",
+ "serde_json",
 ]
 
 [[package]]

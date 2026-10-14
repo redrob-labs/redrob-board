@@ -9,6 +9,9 @@ description = "Reference designs Redrob Board is measured against"
 
 [dependencies]
 board-units = { workspace = true }
+board-geom = { workspace = true }
+board-drc = { workspace = true }
+serde_json = { workspace = true }
 board-layout = { workspace = true }
 board-lib = { workspace = true }
 board-netlist = { workspace = true }
@@ -16,3 +19,7 @@ board-schematic = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "board-fixtures"
+path = "src/main.rs"

@@ -34,8 +34,9 @@ cargo test --workspace
 
 ## 상태
 
-0단계(부트스트랩) 완료: units, geom, netlist, schematic eDSL, 보드 모델, 자기 리더로 왕복되는 거버
-라이터. 단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
+0단계(부트스트랩)·1단계(풋프린트 라이브러리, DRC) 완료. `oracle` 워크플로가 예제 보드를 KiCad로 내보내
+KiCad DRC 위반 수와 우리 수가 같아야 통과합니다: 간격·트랙 폭·고리·드릴·미연결 모두 예제 셋에서 일치.
+단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
 
 ## 라이선스
 

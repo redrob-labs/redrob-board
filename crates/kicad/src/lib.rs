@@ -152,7 +152,8 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
 }
 
 /// Write the `.kicad_pro` project file that carries the design rules the oracle must apply.
-/// Only the rule block is filled in; KiCad supplies defaults for everything else.
+/// The rule block and the Default net class carry our limits; KiCad supplies defaults for the rest.
+/// Without the net class KiCad would check clearance at its own 0.2 mm default, not ours.
 pub fn export_project(rules: &Rules) -> String {
     let r = |v: Nm| v.to_mm_f64();
     format!(
@@ -166,7 +167,14 @@ pub fn export_project(rules: &Rules) -> String {
             "        \"min_track_width\": {track},\n",
             "        \"min_via_annular_width\": {ring},\n",
             "        \"min_via_diameter\": {via}\n",
-            "      }}\n    }}\n  }},\n  \"meta\": {{ \"filename\": \"board.kicad_pro\", \"version\": 1 }}\n}}\n"
+            "      }}\n    }}\n  }},\n",
+            "  \"net_settings\": {{\n    \"classes\": [\n      {{\n        \"name\": \"Default\",\n",
+            "        \"clearance\": {clearance},\n        \"track_width\": {track},\n",
+            "        \"via_diameter\": {via},\n        \"via_drill\": {drill},\n",
+            "        \"bus_width\": 12, \"wire_width\": 6, \"diff_pair_gap\": {clearance}, \"diff_pair_width\": {track}, \"diff_pair_via_gap\": {clearance},\n",
+            "        \"microvia_diameter\": {via}, \"microvia_drill\": {drill}, \"pcb_color\": \"rgba(0, 0, 0, 0.000)\", \"schematic_color\": \"rgba(0, 0, 0, 0.000)\", \"line_style\": 0\n",
+            "      }}\n    ],\n    \"meta\": {{ \"version\": 4 }}\n  }},\n",
+            "  \"meta\": {{ \"filename\": \"board.kicad_pro\", \"version\": 1 }}\n}}\n"
         ),
         clearance = r(rules.clearance),
         edge = r(rules.edge_clearance),

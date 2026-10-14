@@ -6,6 +6,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod fixtures;
+
 use board_layout::footprints;
 use board_lib::Library;
 use board_netlist::Netlist;

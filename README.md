@@ -38,9 +38,10 @@ cargo test --workspace
 
 ## Status
 
-Stage 0 (bootstrap) done: units, geometry, netlist, schematic eDSL, board model and a Gerber
-writer whose output round-trips through its own reader. Stages and their mechanical pass
-conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
+Stage 0 (bootstrap) and Stage 1 (footprint library, DRC) done. The `oracle` workflow exports the
+fixture boards to KiCad and requires KiCad's DRC counts to equal ours: clearance, track width,
+annular ring, drill size and unconnected items all agree on the three fixtures. Stages and their
+mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
 
 ## License
 

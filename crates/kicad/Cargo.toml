@@ -14,11 +14,15 @@ board-layout = { workspace = true }
 board-netlist = { workspace = true }
 board-drc = { workspace = true }
 thiserror = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 board-lib = { workspace = true }
 board-schematic = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "board-kicad-export"
+path = "src/main.rs"

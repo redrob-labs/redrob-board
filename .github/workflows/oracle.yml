@@ -1,0 +1,39 @@
+name: oracle
+
+# Stage gates that compare our tools with an external oracle. The oracle is installed on the runner
+# only; nothing from it ships. A stage is done when this job is green.
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  drc:
+    name: DRC counts match KiCad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install KiCad 9 (oracle only)
+        run: |
+          sudo add-apt-repository -y ppa:kicad/kicad-9.0-releases
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kicad
+          kicad-cli version
+      - name: Export fixtures, run the oracle, compare
+        run: scripts/oracle.sh target/oracle
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oracle-reports
+          path: target/oracle
+          if-no-files-found: ignore
