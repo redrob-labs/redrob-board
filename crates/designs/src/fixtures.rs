@@ -75,6 +75,31 @@ pub fn flipped_short() -> Board {
     b
 }
 
+/// The sensor node placed by hand on a 30 x 25 mm board: header on the left edge, button on the
+/// right, module in the middle, regulator next to the header, sensor in a corner. The placer is
+/// measured against this.
+pub fn sensor_node_hand() -> Board {
+    use crate::{esp32_c3_module_footprint, library};
+    let lib = library();
+    let fp = |id: &str| lib.get(id).expect("footprint in design library").clone();
+    let mut b = Board::two_layer(Rect::from_points(Point::ORIGIN, Point::mm(30, 25)));
+    b.place("J1", fp("Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"), Point::mm(2, 8), 1, false);
+    b.place("SW1", fp("Redrob_Button:SW_SMD_6x6_2pad"), Point::new(Nm::mm(26), Nm::um(12500)), 1, false);
+    b.place("U1", esp32_c3_module_footprint(), Point::new(Nm::mm(14), Nm::um(12500)), 0, false);
+    b.place("U3", fp("Package_TO_SOT_SMD:SOT-23-5"), Point::new(Nm::um(4500), Nm::mm(20)), 0, false);
+    b.place("C1", fp("Resistor_SMD:R_0603_1608Metric"), Point::new(Nm::um(4500), Nm::mm(23)), 0, false);
+    b.place("C2", fp("Resistor_SMD:R_0603_1608Metric"), Point::mm(23, 20), 0, false);
+    b.place("U2", fp("Package_TO_SOT_SMD:SOT-23-5"), Point::mm(24, 3), 0, false);
+    b.place("C4", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(24, 6), 0, false);
+    b.place("R3", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(26, 20), 0, false);
+    b.place("R4", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(26, 22), 0, false);
+    b.place("R1", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(23, 22), 0, false);
+    b.place("R2", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(10, 23), 0, false);
+    b.place("C3", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(14, 23), 0, false);
+    b.place("C5", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(18, 23), 0, false);
+    b
+}
+
 pub fn fixtures() -> Vec<Fixture> {
     vec![
         Fixture { name: "divider_placed", netlist: divider_netlist(), board: divider_placed() },
@@ -104,6 +129,9 @@ mod tests {
         assert_eq!(broken.get(&Rule::AnnularRing), Some(&1));
         assert_eq!(broken.get(&Rule::Clearance), Some(&1), "{broken:?}");
         assert_eq!(broken.get(&Rule::Short), None);
+
+        let hand = summary(&check(&sensor_node_hand(), &crate::sensor_node(), &rules));
+        assert_eq!(hand.keys().collect::<Vec<_>>(), vec![&Rule::Unrouted], "{hand:?}");
 
         let flipped = summary(&check(&flipped_short(), &divider_netlist(), &rules));
         assert_eq!(flipped.get(&Rule::Short), Some(&1), "{flipped:?}");

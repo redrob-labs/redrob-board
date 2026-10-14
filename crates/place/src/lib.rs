@@ -305,7 +305,7 @@ pub fn place(netlist: &Netlist, library: &Library, outline: Rect, c: &Constraint
 #[cfg(test)]
 mod tests {
     use super::*;
-    use board_designs::fixtures::{divider_netlist, divider_placed};
+    use board_designs::fixtures::{divider_netlist, divider_placed, sensor_node_hand};
     use board_designs::{library, sensor_node};
     use board_drc::{Rule, Rules, check, summary};
 
@@ -329,13 +329,15 @@ mod tests {
     }
 
     #[test]
-    fn sensor_node_places_clean_and_reproducibly() {
+    fn sensor_node_beats_hand_placement_and_is_reproducible() {
         let netlist = sensor_node();
         let outline = Rect::from_points(Point::ORIGIN, Point::mm(30, 25));
-        let c =
-            Constraints { edge_parts: vec![("J1".into(), Edge::Left), ("SW1".into(), Edge::Right)], iterations: 30_000, ..Constraints::default() };
+        let hand = hpwl(&sensor_node_hand(), &netlist);
+        let c = Constraints { edge_parts: vec![("J1".into(), Edge::Left), ("SW1".into(), Edge::Right)], ..Constraints::default() };
         let a = place(&netlist, &library(), outline, &c).unwrap();
         clean_except_unrouted(&a, &netlist);
+        let auto = hpwl(&a, &netlist);
+        assert!(auto * 10 <= hand * 8, "auto {auto} vs hand {hand}");
         let b = place(&netlist, &library(), outline, &c).unwrap();
         assert_eq!(a, b);
         assert_eq!(a.placements.len(), 14);

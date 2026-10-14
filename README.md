@@ -38,9 +38,11 @@ cargo test --workspace
 
 ## Status
 
-Stage 0 (bootstrap) and Stage 1 (footprint library, DRC) done. The `oracle` workflow exports the
-fixture boards to KiCad and requires KiCad's DRC counts to equal ours: clearance, track width,
-annular ring, drill size and unconnected items all agree on the three fixtures. Stages and their
+Stages 0 (bootstrap), 1 (footprint library, DRC) and 2 (placement) done. The `oracle` workflow
+exports the fixture boards to KiCad and requires KiCad's DRC counts to equal ours: clearance,
+track width, annular ring, drill size, shorts and unconnected items agree on four fixtures, front and
+back side. The placer puts the 14-part sensor node down with no courtyard overlap and 54% less
+wire length than the hand placement it is measured against (gate: 20%). Stages and their
 mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
 
 ## License
