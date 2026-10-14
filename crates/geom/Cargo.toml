@@ -1,0 +1,15 @@
+[package]
+name = "board-geom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Exact integer geometry for Redrob Board: points, rectangles, segments, polygons"
+
+[dependencies]
+board-units = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

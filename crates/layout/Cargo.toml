@@ -1,0 +1,17 @@
+[package]
+name = "board-layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Board data model for Redrob Board: layers, outline, footprints, tracks, vias"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

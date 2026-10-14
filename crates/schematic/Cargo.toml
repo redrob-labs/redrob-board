@@ -1,0 +1,14 @@
+[package]
+name = "board-schematic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Schematics as Rust code: build parts, wire pins, get a netlist"
+
+[dependencies]
+board-netlist = { workspace = true }
+
+[lints]
+workspace = true

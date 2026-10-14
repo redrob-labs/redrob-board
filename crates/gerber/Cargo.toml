@@ -1,0 +1,17 @@
+[package]
+name = "board-gerber"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Gerber RS-274X writer and reader for Redrob Board"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-layout = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
