@@ -299,10 +299,12 @@ pub mod footprints {
         }
     }
 
-    /// Castellated radio module, 3 edges of pads at 1.27 mm pitch, pads 0.7 x 1.0 mm, body
-    /// `width` x `height`. Pin 1 is top-left; numbering runs down the left edge, along the bottom
-    /// left to right, then up the right edge. This is a generic module outline: the pin-to-function
-    /// map is the schematic's business and is checked against the part's datasheet before order.
+    /// Castellated radio module: `per_side` pads down the left and up the right edge at 1.27 mm
+    /// pitch, and as many pads along the bottom edge as fit between the side columns with
+    /// clearance. Pads are 0.7 x 1.0 mm, body `width` x `height`. Pin 1 is top-left; numbering runs
+    /// down the left edge, along the bottom left to right, then up the right edge. This is a generic
+    /// module outline: the pin-to-function map is the schematic's business and is checked against
+    /// the part's datasheet before order.
     pub fn castellated_module_3side(per_side: usize, width: Nm, height: Nm) -> Footprint {
         let pitch = Nm::um(1270);
         let along = PadShape::Rect { width: Nm::um(1000), height: Nm::um(700) }; // left/right edges
@@ -310,6 +312,10 @@ pub mod footprints {
         let half_w = width / 2;
         let half_h = height / 2;
         let span = pitch * (per_side as i64 - 1);
+        // Bottom row must stay 0.2 mm clear of the side columns (which reach 1.0 mm in from the edge).
+        let bottom_reach = half_w - Nm::um(1200) - Nm::um(350);
+        let bottom_n = if bottom_reach > Nm::ZERO { ((bottom_reach * 2).0 / pitch.0) as usize + 1 } else { 0 };
+        let bottom_span = pitch * (bottom_n as i64 - 1).max(0);
         let mut pads = Vec::new();
         let mut n = 1;
         let mut push = |at: Point, shape: PadShape| {
@@ -319,14 +325,14 @@ pub mod footprints {
         for i in 0..per_side as i64 {
             push(Point::new(-half_w + Nm::um(500), span / 2 - pitch * i), along);
         }
-        for i in 0..per_side as i64 {
-            push(Point::new(-span / 2 + pitch * i, -half_h + Nm::um(500)), across);
+        for i in 0..bottom_n as i64 {
+            push(Point::new(-bottom_span / 2 + pitch * i, -half_h + Nm::um(500)), across);
         }
         for i in 0..per_side as i64 {
             push(Point::new(half_w - Nm::um(500), -span / 2 + pitch * i), along);
         }
         Footprint {
-            id: format!("Redrob_Module:Castellated_3x{per_side}_P1.27mm_{}x{}", width.mm_string(), height.mm_string()),
+            id: format!("Redrob_Module:Castellated_{per_side}x{bottom_n}x{per_side}_P1.27mm_{}x{}", width.mm_string(), height.mm_string()),
             pads,
             courtyard: Rect::centered(Point::ORIGIN, width + Nm::um(500), height + Nm::um(500)),
         }

@@ -24,7 +24,8 @@ pub fn library() -> Library {
     lib
 }
 
-/// Module outline used for the ESP32-C3 part: 13 pads per edge on three edges, 13.2 x 16.6 mm.
+/// Module outline used for the ESP32-C3 part: 13 pads on each long edge, 8 along the bottom,
+/// 13.2 x 16.6 mm body.
 pub fn esp32_c3_module_footprint() -> board_layout::Footprint {
     footprints::castellated_module_3side(13, Nm::um(13200), Nm::um(16600))
 }
@@ -56,7 +57,7 @@ pub fn sensor_node() -> Netlist {
             ("20", "IO9"),
             ("27", "RXD0"),
             ("29", "TXD0"),
-            ("36", "GND"),
+            ("34", "GND"),
         ],
     );
     let u2 = sch.part(
@@ -87,7 +88,7 @@ pub fn sensor_node() -> Netlist {
 
     sch.net("5V", &[j1.pin("1"), u3.pin("1"), u3.pin("3"), c1.pin("1")]);
     sch.net("GND", &[j1.pin("2"), u3.pin("2"), c1.pin("2"), c2.pin("2"), c3.pin("2"), c4.pin("2"), c5.pin("2"), u2.pin("3"), sw1.pin("2")]);
-    sch.net("GND", &[u1.pin("1"), u1.pin("2"), u1.pin("36")]);
+    sch.net("GND", &[u1.pin("1"), u1.pin("2"), u1.pin("34")]);
     sch.net(
         "3V3",
         &[u3.pin("5"), c2.pin("1"), c3.pin("1"), c4.pin("1"), u1.pin("3"), u2.pin("1"), r1.pin("1"), r2.pin("1"), r3.pin("1"), r4.pin("1")],
@@ -127,13 +128,19 @@ mod tests {
     #[test]
     fn module_footprint_shape() {
         let fp = esp32_c3_module_footprint();
-        assert_eq!(fp.pads.len(), 39);
+        assert_eq!(fp.pads.len(), 34);
         assert_eq!(fp.pads[0].number, "1");
-        assert_eq!(fp.pads[38].number, "39");
+        assert_eq!(fp.pads[33].number, "34");
         // Pin 1 top-left, pin 13 bottom-left, pin 14 bottom-left corner on the bottom edge.
         assert!(fp.pads[0].at.x < Nm::ZERO && fp.pads[0].at.y > Nm::ZERO);
         assert!(fp.pads[12].at.x < Nm::ZERO && fp.pads[12].at.y < Nm::ZERO);
         assert!(fp.pads[13].at.y < fp.pads[12].at.y);
-        assert!(fp.pads[38].at.x > Nm::ZERO && fp.pads[38].at.y > Nm::ZERO);
+        assert!(fp.pads[33].at.x > Nm::ZERO && fp.pads[33].at.y > Nm::ZERO);
+        // The lone footprint on a board passes clearance between its own pads.
+        let mut b = board_layout::Board::two_layer(board_geom::Rect::from_points(board_geom::Point::ORIGIN, board_geom::Point::mm(30, 30)));
+        b.place("U1", fp, board_geom::Point::mm(15, 15), 0, false);
+        let v = board_drc::check(&b, &board_netlist::Netlist::default(), &board_drc::Rules::default());
+        let v: Vec<_> = v.into_iter().filter(|v| v.rule != board_drc::Rule::UnknownRefdes).collect();
+        assert!(v.is_empty(), "{v:#?}");
     }
 }

@@ -27,6 +27,7 @@ board-lib = { path = "crates/lib" }
 board-drc = { path = "crates/drc" }
 board-designs = { path = "crates/designs" }
 board-kicad = { path = "crates/kicad" }
+board-place = { path = "crates/place" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

@@ -92,6 +92,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-place"
+version = "0.0.1"
+dependencies = [
+ "board-designs",
+ "board-drc",
+ "board-geom",
+ "board-layout",
+ "board-lib",
+ "board-netlist",
+ "board-units",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "board-schematic"
 version = "0.0.1"
 dependencies = [
