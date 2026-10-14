@@ -249,7 +249,7 @@ pub fn place(netlist: &Netlist, library: &Library, outline: Rect, c: &Constraint
     let t0 = (cost as f64 / problem.parts.len().max(1) as f64).max(1.0);
     let t_end = (c.grid.0 as f64).max(1.0);
     let n = problem.parts.len();
-    for step in 0..c.iterations {
+    for step in 0..if n == 0 { 0 } else { c.iterations } {
         let frac = step as f64 / c.iterations.max(1) as f64;
         let t = t0 * (t_end / t0).powf(frac);
         let reach = ((span * (1.0 - frac) * 0.5).max(c.grid.0 as f64 * 4.0)) as i64;

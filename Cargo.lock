@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "board-agent"
+version = "0.0.1"
+dependencies = [
+ "board-bom",
+ "board-designs",
+ "board-drc",
+ "board-geom",
+ "board-gerber",
+ "board-layout",
+ "board-lib",
+ "board-netlist",
+ "board-place",
+ "board-route",
+ "board-units",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "board-bom"
 version = "0.0.1"
 dependencies = [

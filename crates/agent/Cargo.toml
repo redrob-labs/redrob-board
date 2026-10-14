@@ -1,0 +1,30 @@
+[package]
+name = "board-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Agent tool surface for Redrob Board: place, route, DRC and export as functions and as a JSON envelope"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-layout = { workspace = true }
+board-lib = { workspace = true }
+board-netlist = { workspace = true }
+board-designs = { workspace = true }
+board-drc = { workspace = true }
+board-place = { workspace = true }
+board-route = { workspace = true }
+board-gerber = { workspace = true }
+board-bom = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "board-cli"
+path = "src/main.rs"
