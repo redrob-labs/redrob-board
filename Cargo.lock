@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "board-designs"
+version = "0.0.1"
+dependencies = [
+ "board-layout",
+ "board-lib",
+ "board-netlist",
+ "board-schematic",
+ "board-units",
+]
+
+[[package]]
 name = "board-drc"
 version = "0.0.1"
 dependencies = [
@@ -30,6 +41,21 @@ dependencies = [
  "board-geom",
  "board-layout",
  "board-units",
+ "thiserror",
+]
+
+[[package]]
+name = "board-kicad"
+version = "0.0.1"
+dependencies = [
+ "board-drc",
+ "board-geom",
+ "board-layout",
+ "board-lib",
+ "board-netlist",
+ "board-schematic",
+ "board-units",
+ "serde_json",
  "thiserror",
 ]
 

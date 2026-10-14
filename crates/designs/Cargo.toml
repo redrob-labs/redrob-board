@@ -1,0 +1,18 @@
+[package]
+name = "board-designs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Reference designs Redrob Board is measured against"
+
+[dependencies]
+board-units = { workspace = true }
+board-layout = { workspace = true }
+board-lib = { workspace = true }
+board-netlist = { workspace = true }
+board-schematic = { workspace = true }
+
+[lints]
+workspace = true

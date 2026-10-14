@@ -255,6 +255,83 @@ pub mod footprints {
         }
     }
 
+    /// 0603 chip part: two 0.9 x 0.95 mm pads 1.6 mm apart.
+    pub fn chip_0603() -> Footprint {
+        let shape = PadShape::Rect { width: Nm::um(900), height: Nm::um(950) };
+        Footprint {
+            id: "Resistor_SMD:R_0603_1608Metric".into(),
+            pads: vec![
+                Pad::smd("1", Point::new(-Nm::um(800), Nm::ZERO), shape, Layer::FrontCopper),
+                Pad::smd("2", Point::new(Nm::um(800), Nm::ZERO), shape, Layer::FrontCopper),
+            ],
+            courtyard: Rect::centered(Point::ORIGIN, Nm::um(2960), Nm::um(1460)),
+        }
+    }
+
+    /// SOT-23-5: pitch 0.95 mm, pads 1.06 x 0.65 mm at x = +-1.35 mm. Pins 1-3 left (top to
+    /// bottom), 4-5 right (bottom to top), as the package numbers them.
+    pub fn sot23_5() -> Footprint {
+        let shape = PadShape::Rect { width: Nm::um(1060), height: Nm::um(650) };
+        let (x, p) = (Nm::um(1350), Nm::um(950));
+        Footprint {
+            id: "Package_TO_SOT_SMD:SOT-23-5".into(),
+            pads: vec![
+                Pad::smd("1", Point::new(-x, p), shape, Layer::FrontCopper),
+                Pad::smd("2", Point::new(-x, Nm::ZERO), shape, Layer::FrontCopper),
+                Pad::smd("3", Point::new(-x, -p), shape, Layer::FrontCopper),
+                Pad::smd("4", Point::new(x, -p), shape, Layer::FrontCopper),
+                Pad::smd("5", Point::new(x, p), shape, Layer::FrontCopper),
+            ],
+            courtyard: Rect::centered(Point::ORIGIN, Nm::um(4140), Nm::um(3500)),
+        }
+    }
+
+    /// Two-pad surface-mount tactile switch, 6 x 6 mm body, pads 2.0 x 1.5 mm at x = +-4.0 mm.
+    pub fn tactile_6x6_2pad() -> Footprint {
+        let shape = PadShape::Rect { width: Nm::um(2000), height: Nm::um(1500) };
+        Footprint {
+            id: "Redrob_Button:SW_SMD_6x6_2pad".into(),
+            pads: vec![
+                Pad::smd("1", Point::new(-Nm::mm(4), Nm::ZERO), shape, Layer::FrontCopper),
+                Pad::smd("2", Point::new(Nm::mm(4), Nm::ZERO), shape, Layer::FrontCopper),
+            ],
+            courtyard: Rect::centered(Point::ORIGIN, Nm::um(10500), Nm::um(6500)),
+        }
+    }
+
+    /// Castellated radio module, 3 edges of pads at 1.27 mm pitch, pads 0.7 x 1.0 mm, body
+    /// `width` x `height`. Pin 1 is top-left; numbering runs down the left edge, along the bottom
+    /// left to right, then up the right edge. This is a generic module outline: the pin-to-function
+    /// map is the schematic's business and is checked against the part's datasheet before order.
+    pub fn castellated_module_3side(per_side: usize, width: Nm, height: Nm) -> Footprint {
+        let pitch = Nm::um(1270);
+        let along = PadShape::Rect { width: Nm::um(1000), height: Nm::um(700) }; // left/right edges
+        let across = PadShape::Rect { width: Nm::um(700), height: Nm::um(1000) }; // bottom edge
+        let half_w = width / 2;
+        let half_h = height / 2;
+        let span = pitch * (per_side as i64 - 1);
+        let mut pads = Vec::new();
+        let mut n = 1;
+        let mut push = |at: Point, shape: PadShape| {
+            pads.push(Pad::smd(n.to_string(), at, shape, Layer::FrontCopper));
+            n += 1;
+        };
+        for i in 0..per_side as i64 {
+            push(Point::new(-half_w + Nm::um(500), span / 2 - pitch * i), along);
+        }
+        for i in 0..per_side as i64 {
+            push(Point::new(-span / 2 + pitch * i, -half_h + Nm::um(500)), across);
+        }
+        for i in 0..per_side as i64 {
+            push(Point::new(half_w - Nm::um(500), -span / 2 + pitch * i), along);
+        }
+        Footprint {
+            id: format!("Redrob_Module:Castellated_3x{per_side}_P1.27mm_{}x{}", width.mm_string(), height.mm_string()),
+            pads,
+            courtyard: Rect::centered(Point::ORIGIN, width + Nm::um(500), height + Nm::um(500)),
+        }
+    }
+
     /// 2.54 mm pin header, 1 x n, vertical. Pin 1 at the origin, others along +x.
     pub fn pin_header_1xn(n: usize) -> Footprint {
         let pitch = Nm::um(2540);
