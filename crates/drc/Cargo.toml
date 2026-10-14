@@ -1,0 +1,22 @@
+[package]
+name = "board-drc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Design rule check for Redrob Board: clearance, shorts, widths, rings, edges, courtyards, connectivity"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-netlist = { workspace = true }
+board-layout = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+board-schematic = { workspace = true }
+
+[lints]
+workspace = true
