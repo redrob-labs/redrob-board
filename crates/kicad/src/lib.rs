@@ -3,8 +3,12 @@
 //! used only for comparison.
 //!
 //! Coordinates flip from our y-up to KiCad's y-down. Footprints are written with their pads in
-//! local coordinates and the placement as `(at x y angle)`. Flipped (back-side) placements are
-//! refused until the oracle comparison has confirmed the mirroring convention; stage 2 adds them.
+//! local coordinates and the placement as `(at x y angle)`.
+//!
+//! Back-side placements: our model mirrors a flipped footprint across its local x axis before
+//! rotating; KiCad mirrors across the y axis. The two differ by a half turn, so a flipped part
+//! with `quarter_turns = t` is written on `B.Cu` with angle `t * 90 + 180`. The `flipped_short`
+//! fixture holds the oracle to this.
 
 #![forbid(unsafe_code)]
 
@@ -19,8 +23,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ExportError {
-    #[error("flipped placement {0} cannot be exported yet")]
-    Flipped(String),
     #[error("inner copper layers are not exported yet")]
     InnerLayers,
 }
@@ -55,9 +57,6 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
     if board.copper_layers.iter().any(|l| matches!(l, Layer::InnerCopper(_))) {
         return Err(ExportError::InnerLayers);
     }
-    if let Some(p) = board.placements.iter().find(|p| p.flipped) {
-        return Err(ExportError::Flipped(p.refdes.clone()));
-    }
 
     // Net numbers: 0 is KiCad's "no net".
     let net_index = |name: &str| netlist.nets.iter().position(|n| n.name == name).map_or(0, |i| i + 1);
@@ -75,24 +74,32 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
     }
 
     for p in &board.placements {
-        let angle = p.quarter_turns as i64 * 90;
-        writeln!(s, "  (footprint {} (layer \"F.Cu\") (at {} {})", quote(&p.footprint.id), xy(p.at), angle).unwrap();
-        writeln!(s, "    (property \"Reference\" {} (at 0 0 0) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))", quote(&p.refdes))
-            .unwrap();
+        let angle = (p.quarter_turns as i64 * 90 + if p.flipped { 180 } else { 0 }) % 360;
+        let (cu, silk, paste, mask, yard_layer) =
+            if p.flipped { ("B.Cu", "B.SilkS", "B.Paste", "B.Mask", "B.CrtYd") } else { ("F.Cu", "F.SilkS", "F.Paste", "F.Mask", "F.CrtYd") };
+        writeln!(s, "  (footprint {} (layer {}) (at {} {})", quote(&p.footprint.id), quote(cu), xy(p.at), angle).unwrap();
+        writeln!(
+            s,
+            "    (property \"Reference\" {} (at 0 0 0) (layer {}) (effects (font (size 1 1) (thickness 0.15))))",
+            quote(&p.refdes),
+            quote(silk)
+        )
+        .unwrap();
         let smd = p.footprint.pads.iter().all(|pad| pad.drill.is_none());
         writeln!(s, "    (attr {})", if smd { "smd" } else { "through_hole" }).unwrap();
         let yard = p.footprint.courtyard;
         writeln!(
             s,
-            "    (fp_rect (start {}) (end {}) (stroke (width 0.05) (type default)) (fill none) (layer \"F.CrtYd\"))",
+            "    (fp_rect (start {}) (end {}) (stroke (width 0.05) (type default)) (fill none) (layer {}))",
             xy(yard.min),
-            xy(yard.max)
+            xy(yard.max),
+            quote(yard_layer)
         )
         .unwrap();
         for pad in &p.footprint.pads {
             let (w, h) = pad.shape.size();
             let (kind, layers) = match (pad.drill, pad.layers.is_empty()) {
-                (None, _) => ("smd", format!("{0} {1} {2}", quote("F.Cu"), quote("F.Paste"), quote("F.Mask"))),
+                (None, _) => ("smd", format!("{} {} {}", quote(cu), quote(paste), quote(mask))),
                 (Some(_), true) => ("np_thru_hole", format!("{} {}", quote("*.Cu"), quote("*.Mask"))),
                 (Some(_), false) => ("thru_hole", format!("{} {}", quote("*.Cu"), quote("*.Mask"))),
             };
@@ -239,10 +246,12 @@ mod tests {
     }
 
     #[test]
-    fn refuses_flipped_until_verified() {
+    fn flipped_goes_to_back_with_half_turn() {
         let (mut b, n) = fixture();
-        b.place("C1", footprints::chip_0402(), Point::mm(2, 2), 0, true);
-        assert_eq!(export_pcb(&b, &n), Err(ExportError::Flipped("C1".into())));
+        b.place("C1", footprints::chip_0402(), Point::mm(2, 2), 1, true);
+        let text = export_pcb(&b, &n).unwrap();
+        assert!(text.contains("(footprint \"Resistor_SMD:R_0402_1005Metric\" (layer \"B.Cu\") (at 2 -2 270)"), "{text}");
+        assert!(text.contains("(layers \"B.Cu\" \"B.Paste\" \"B.Mask\")"));
     }
 
     #[test]

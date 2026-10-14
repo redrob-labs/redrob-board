@@ -24,8 +24,9 @@ MAPPING = {
     "CourtyardOverlap": "courtyards_overlap",
 }
 # Oracle categories we deliberately do not mirror: warnings about silkscreen, missing libraries,
-# dangling track ends (our router never leaves them), and via_diameter (implied by our ring check).
-IGNORED = {"silk_over_copper", "lib_footprint_issues", "track_dangling", "via_diameter", "footprint_type_mismatch"}
+# dangling track ends (our router never leaves them), via_diameter (implied by our ring check), and
+# solder_mask_bridge (a short seen again through the mask aperture; mask layers arrive in stage 4).
+IGNORED = {"silk_over_copper", "lib_footprint_issues", "track_dangling", "via_diameter", "footprint_type_mismatch", "solder_mask_bridge"}
 
 
 def main(root: Path) -> int:

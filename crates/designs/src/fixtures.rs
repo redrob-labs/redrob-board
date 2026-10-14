@@ -63,11 +63,24 @@ pub fn divider_broken() -> Board {
     b
 }
 
+/// R2 on the back side, rotated a quarter turn, with a VIN track on the back layer that lands
+/// exactly on R2.1 (OUT): one short. Pins down the flip convention against the oracle.
+pub fn flipped_short() -> Board {
+    let mut b = Board::two_layer(Rect::from_points(Point::ORIGIN, Point::mm(20, 10)));
+    b.place("R1", footprints::chip_0402(), Point::mm(5, 5), 0, false);
+    b.place("R2", footprints::chip_0402(), Point::mm(9, 5), 1, true);
+    b.place("J1", footprints::pin_header_1xn(3), Point::mm(5, 2), 0, false);
+    // Our model puts R2.1 at (9, 5.5): local (-0.5, 0) mirrored in x then turned a quarter.
+    b.tracks.push(track("VIN", Layer::BackCopper, Point::new(Nm::mm(9), Nm::um(5500)), Point::mm(5, 2)));
+    b
+}
+
 pub fn fixtures() -> Vec<Fixture> {
     vec![
         Fixture { name: "divider_placed", netlist: divider_netlist(), board: divider_placed() },
         Fixture { name: "divider_routed", netlist: divider_netlist(), board: divider_routed() },
         Fixture { name: "divider_broken", netlist: divider_netlist(), board: divider_broken() },
+        Fixture { name: "flipped_short", netlist: divider_netlist(), board: flipped_short() },
     ]
 }
 
@@ -91,5 +104,10 @@ mod tests {
         assert_eq!(broken.get(&Rule::AnnularRing), Some(&1));
         assert_eq!(broken.get(&Rule::Clearance), Some(&1), "{broken:?}");
         assert_eq!(broken.get(&Rule::Short), None);
+
+        let flipped = summary(&check(&flipped_short(), &divider_netlist(), &rules));
+        assert_eq!(flipped.get(&Rule::Short), Some(&1), "{flipped:?}");
+        assert_eq!(flipped.get(&Rule::Unrouted), Some(&4));
+        assert_eq!(flipped.len(), 2, "{flipped:?}");
     }
 }
