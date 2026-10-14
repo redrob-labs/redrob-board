@@ -109,7 +109,9 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
                 PadShape::Oval { .. } => "oval".to_string(),
                 PadShape::RoundRect { .. } => "roundrect".to_string(),
             };
-            write!(s, "    (pad {} {kind} {shape} (at {}) (size {} {})", quote(&pad.number), xy(pad.at), mm(w), mm(h)).unwrap();
+            // In this format a pad's angle is absolute (footprint angle plus its own), so every pad
+            // repeats the footprint angle; without it KiCad rotates the position but not the shape.
+            write!(s, "    (pad {} {kind} {shape} (at {} {angle}) (size {} {})", quote(&pad.number), xy(pad.at), mm(w), mm(h)).unwrap();
             if let Some(d) = pad.drill {
                 write!(s, " (drill {})", mm(d)).unwrap();
             }
@@ -160,7 +162,9 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
 
 /// Write the `.kicad_pro` project file that carries the design rules the oracle must apply.
 /// The rule block and the Default net class carry our limits; KiCad supplies defaults for the rest.
-/// Without the net class KiCad would check clearance at its own 0.2 mm default, not ours.
+/// Without the net class KiCad would check clearance at its own 0.2 mm default, not ours. The
+/// net_settings block is written as schema version 3: measured against KiCad 9.0.8, version 4
+/// without a `priority` field is silently ignored and the default class comes back.
 pub fn export_project(rules: &Rules) -> String {
     let r = |v: Nm| v.to_mm_f64();
     format!(
@@ -180,7 +184,7 @@ pub fn export_project(rules: &Rules) -> String {
             "        \"via_diameter\": {via},\n        \"via_drill\": {drill},\n",
             "        \"bus_width\": 12, \"wire_width\": 6, \"diff_pair_gap\": {clearance}, \"diff_pair_width\": {track}, \"diff_pair_via_gap\": {clearance},\n",
             "        \"microvia_diameter\": {via}, \"microvia_drill\": {drill}, \"pcb_color\": \"rgba(0, 0, 0, 0.000)\", \"schematic_color\": \"rgba(0, 0, 0, 0.000)\", \"line_style\": 0\n",
-            "      }}\n    ],\n    \"meta\": {{ \"version\": 4 }}\n  }},\n",
+            "      }}\n    ],\n    \"meta\": {{ \"version\": 3 }}\n  }},\n",
             "  \"meta\": {{ \"filename\": \"board.kicad_pro\", \"version\": 1 }}\n}}\n"
         ),
         clearance = r(rules.clearance),
@@ -240,7 +244,9 @@ mod tests {
         let pads: Vec<_> = r1.children("pad").collect();
         assert_eq!(pads.len(), 2);
         assert_eq!(pads[0].child("net").unwrap().atom_arg(1), Some("A"));
-        assert!(text.contains("(pad \"1\" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1) (layers \"*.Cu\" \"*.Mask\") (net 1 \"A\"))"));
+        assert!(text.contains("(pad \"1\" thru_hole circle (at 0 0 0) (size 1.7 1.7) (drill 1) (layers \"*.Cu\" \"*.Mask\") (net 1 \"A\"))"));
+        // R1 is turned a quarter: its pads carry the footprint angle too.
+        assert!(text.contains("(pad \"1\" smd rect (at -0.5 0 90) (size 0.6 0.5)"), "{text}");
         // y is flipped: our (10, 5) is KiCad (10, -5).
         assert!(text.contains("(segment (start 5 -5) (end 10 -5) (width 0.25) (layer \"F.Cu\") (net 1))"));
     }

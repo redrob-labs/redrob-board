@@ -92,6 +92,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-oracle"
+version = "0.0.1"
+dependencies = [
+ "board-designs",
+ "board-drc",
+ "board-route",
+ "serde_json",
+]
+
+[[package]]
 name = "board-place"
 version = "0.0.1"
 dependencies = [
@@ -104,6 +114,20 @@ dependencies = [
  "board-units",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "board-route"
+version = "0.0.1"
+dependencies = [
+ "board-designs",
+ "board-drc",
+ "board-geom",
+ "board-layout",
+ "board-netlist",
+ "board-place",
+ "board-units",
+ "serde",
 ]
 
 [[package]]

@@ -1,0 +1,23 @@
+[package]
+name = "board-route"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Track routing for Redrob Board: grid maze router, two layers, vias, rip-up and reroute"
+
+[dependencies]
+board-units = { workspace = true }
+board-geom = { workspace = true }
+board-layout = { workspace = true }
+board-netlist = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+board-designs = { workspace = true }
+board-drc = { workspace = true }
+board-place = { workspace = true }
+
+[lints]
+workspace = true

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-${KIROCREW_SCRATCH:-target}/oracle}"
 rm -rf "$OUT"
-cargo run -q -p board-designs --bin board-fixtures -- "$OUT"
+cargo run -q -p board-oracle --bin board-fixtures -- "$OUT"
 for board in "$OUT"/*.board.json; do
   name="$(basename "$board" .board.json)"
   cargo run -q -p board-kicad --bin board-kicad-export -- "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"

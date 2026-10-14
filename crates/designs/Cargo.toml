@@ -20,6 +20,3 @@ board-schematic = { workspace = true }
 [lints]
 workspace = true
 
-[[bin]]
-name = "board-fixtures"
-path = "src/main.rs"
