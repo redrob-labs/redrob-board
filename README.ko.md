@@ -53,6 +53,14 @@ catalog·write_schematic·place·route·drc·export_zip 등)를 선언합니다:
 센서 노드는 ESP32-C3-MINI-1과 AHT20의 데이터시트 랜드 패턴과 핀 번호를 씁니다(모듈 풋프린트는 Espressif 공식 KiCad
 풋프린트와 패드 단위로 대조). 단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
 
+0.2.0은 2세대입니다: 넷클래스(클래스별 라우팅 그리드·DRC, KiCad 프로젝트 클래스), 복도 안에서 배선하고 트롬본으로 길이를 맞추는
+차동쌍, 길이 매칭 그룹, 내층 GND·전원 플레인이 있는 4층 보드(다른 넷 주변 존 채움, 섬·조각 제거; 내층 거버(G36/G37 영역)가
+KiCad 플롯과 픽셀 일치, KiCad DRC 0), 자체 스트로크 폰트 실크와 모듈 플레이트 페이스트 창, `board-sim`(넷리스트의 선형 DC 동작점·AC
+소신호, `oracle` 워크플로 `sim` 잡에서 ngspice와 1% 이내 일치, `simulate` 도구와 레일 검사), 3D 미리보기(코트야드 위 상자 부품, 드래그
+회전), 브라우저 빌드, 보드 하우스 패키지: `export_zip`이 JLCPCB·PCBWay 리더가 기대하는 이름으로 파일을 쓰고 주문 시트(층수·크기·규칙·LCSC
+재고 커버·업로드 위치)를 아카이브에 넣습니다. 앱의 ORDER 팔레트는 Labs 스위치(`REDROB_BOARD_LABS=order` 또는 Labs 체크박스)이고 꺼져
+있으면 그리지 않습니다. 주문 버튼은 없습니다: 두 하우스 모두 판매자 계정 없는 공개 주문 API가 없어서, 패키지와 시트가 인계점입니다.
+
 ## 설치
 
 릴리즈에는 서명·공증된 macOS 디스크 이미지(universal), 서명된 Windows 설치 파일과 포터블 zip(x64·arm64),

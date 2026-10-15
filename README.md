@@ -63,8 +63,22 @@ becomes a netlist by rules (`board-catalog`, parts with MPN, LCSC number and ref
 a second headless test types one chat line and ends with a fabrication ZIP on disk, DRC clean,
 with a scripted engine standing in for the model. The sensor node
 uses the ESP32-C3-MINI-1 and AHT20 land patterns and pin numbers from their datasheets (the module
-footprint is checked pad for pad against Espressif's own KiCad footprint). Stages and their
-mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
+footprint is checked pad for pad against Espressif's own KiCad footprint).
+
+0.2.0 adds the second generation: net classes (one routing grid per class, DRC per class, KiCad
+project classes), differential pairs routed in a corridor and length-matched with trombone meanders,
+length-matched groups, four-layer boards with inner ground and power planes (zone fill around other
+nets, islands and slivers dropped; our inner-layer Gerbers with G36/G37 regions are pixel-identical
+to KiCad's plots and KiCad's DRC stays at zero), silkscreen in our own stroke font and paste windows
+on module plates, `board-sim` (linear DC operating point and AC small-signal of the netlist, checked
+against ngspice within 1% in the `oracle` workflow's `sim` job, with a `simulate` tool and rail
+checks), a 3D preview (parts as boxes over their courtyards, drag to turn), a browser build, and
+board-house packages: `export_zip` names the files the way JLCPCB or PCBWay's reader expects and
+puts an order sheet (layers, size, rules, LCSC stock coverage, where to upload) in the archive. The
+app's ORDER palette is a Labs switch (`REDROB_BOARD_LABS=order` or the Labs checkbox) and is not
+drawn when off. There is no order button: neither house has a public ordering API without a
+merchant account, so the package and the sheet are the hand-off. Stages and their mechanical pass
+conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
 
 ## Install
 

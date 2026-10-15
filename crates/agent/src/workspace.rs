@@ -15,7 +15,7 @@ use board_place::Edge;
 use board_units::Nm;
 use serde_json::{Value, json};
 
-use crate::{drc_design, example_design, example_names, export_fab, export_zip, place_design, route_design};
+use crate::{FabHouse, OrderSheet, drc_design, example_design, example_names, export_fab, export_zip_for, place_design, route_design};
 
 /// The design the user and the engine both work on.
 #[derive(Clone, Debug, Default)]
@@ -115,8 +115,11 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "export_zip",
-            description: "Write every fabrication file (Gerbers, Excellon drill, BOM, pick-and-place) as one ZIP archive, the upload a board house takes.",
-            parameters: json!({"type": "object", "required": ["path"], "properties": {"path": {"type": "string", "description": "Archive path, e.g. fab/sensor-node.zip"}}, "additionalProperties": false}),
+            description: "Write every fabrication file (Gerbers, Excellon drill, BOM, pick-and-place) as one ZIP archive, the upload a board house takes, with a README.txt order sheet (layers, size, rules, LCSC stock coverage). Ordering itself needs the user's account at the house.",
+            parameters: json!({"type": "object", "required": ["path"], "properties": {
+                "path": {"type": "string", "description": "Archive path, e.g. fab/sensor-node.zip"},
+                "house": {"type": "string", "enum": ["generic", "jlcpcb", "pcbway"], "description": "File naming the house's reader expects (default generic = KiCad names)"}
+            }, "additionalProperties": false}),
         },
         ToolSpec {
             name: "export_fab",
@@ -290,11 +293,14 @@ impl Workspace {
         Ok(json!({"dir": dir, "files": files}))
     }
 
-    pub fn export_zip(&mut self, path: &str) -> Result<Value, String> {
+    pub fn export_zip(&mut self, path: &str, house: FabHouse) -> Result<Value, String> {
         let (Some(board), Some(netlist)) = (&self.board, &self.netlist) else { return Err("nothing to export: place first".into()) };
-        let n = export_zip(board, netlist, Path::new(path)).map_err(|e| e.to_string())?;
+        let n = export_zip_for(board, netlist, Path::new(path), house).map_err(|e| e.to_string())?;
         let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        Ok(json!({"path": path, "files": n, "bytes": bytes}))
+        let sheet = OrderSheet::from_board(board, netlist, house, &board_route::RouteRules::default());
+        Ok(
+            json!({"path": path, "house": house.id(), "files": n, "bytes": bytes, "order_sheet": sheet.text(), "parts_in_stock": sheet.parts_in_stock, "parts_missing": sheet.parts_missing}),
+        )
     }
 
     /// Run a tool by name with JSON arguments; the result is what goes back as the `tool` message.
@@ -377,7 +383,13 @@ impl Workspace {
                 self.simulate(&sources, &rails, &ac)
             }
             "export_fab" => self.export_fab(&str_arg("dir")?),
-            "export_zip" => self.export_zip(&str_arg("path")?),
+            "export_zip" => {
+                let house = match args.get("house").and_then(Value::as_str) {
+                    Some(h) => FabHouse::parse(h).ok_or_else(|| format!("export_zip: unknown house `{h}` (generic, jlcpcb, pcbway)"))?,
+                    None => FabHouse::Generic,
+                };
+                self.export_zip(&str_arg("path")?, house)
+            }
             other => Err(format!("unknown tool `{other}`")),
         }
     }
@@ -451,10 +463,23 @@ mod tests {
         assert!(w.run("write_schematic", &json!({"mcu": "aht20"})).unwrap_err().contains("not a Mcu"));
         let zip = std::env::temp_dir().join(format!("board-ws-{}.zip", std::process::id()));
         let r = w.run("export_zip", &json!({"path": zip.display().to_string()})).unwrap();
-        assert_eq!(r["files"], 14);
+        assert_eq!(r["files"], 15);
         let entries = crate::zipfile::read_zip(&std::fs::read(&zip).unwrap()).unwrap();
         assert!(entries.iter().any(|(n, d)| n == "board-F_Cu.gtl" && d.ends_with(b"M02*\n")));
         assert!(entries.iter().any(|(n, _)| n == "bom.csv"));
+        let jlc = std::env::temp_dir().join(format!("board-ws-jlc-{}.zip", std::process::id()));
+        let r = w.run("export_zip", &json!({"path": jlc.display().to_string(), "house": "jlcpcb"})).unwrap();
+        assert_eq!(r["house"], "jlcpcb");
+        assert_eq!(r["parts_in_stock"], 14, "{r}");
+        let entries = crate::zipfile::read_zip(&std::fs::read(&jlc).unwrap()).unwrap();
+        let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"Gerber_TopLayer.GTL"), "{names:?}");
+        assert!(names.contains(&"Drill_PTH_Through.DRL"));
+        let readme = entries.iter().find(|(n, _)| n == "README.txt").unwrap();
+        let text = String::from_utf8_lossy(&readme.1);
+        assert!(text.contains("Layers:          2"), "{text}");
+        assert!(text.contains("14 with an LCSC stock number"), "{text}");
+        assert!(w.run("export_zip", &json!({"path": "x.zip", "house": "osh"})).is_err());
         std::fs::remove_file(&zip).unwrap();
     }
 

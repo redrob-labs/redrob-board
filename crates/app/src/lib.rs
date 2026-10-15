@@ -55,6 +55,10 @@ pub struct BoardApp {
     pub height_mm: f64,
     pub edge_parts: Vec<(String, Edge)>,
     pub export_dir: String,
+    /// Labs: the ORDER palette (board-house packages). Off by default; off means not drawn.
+    pub labs_order: bool,
+    pub house: board_agent::FabHouse,
+    pub order_sheet: Option<String>,
     pub log: Vec<String>,
     pub visible: Visible,
     pub chat: Chat,
@@ -99,6 +103,9 @@ impl Default for BoardApp {
             height_mm: 25.0,
             edge_parts: vec![("J1".into(), Edge::Left), ("SW1".into(), Edge::Right)],
             export_dir: "fab".into(),
+            labs_order: std::env::var_os("REDROB_BOARD_LABS").is_some_and(|v| v.to_string_lossy().split(',').any(|f| f.trim() == "order")),
+            house: board_agent::FabHouse::Generic,
+            order_sheet: None,
             log: Vec::new(),
             visible: Visible::default(),
             chat: Chat::default(),
@@ -169,6 +176,18 @@ impl BoardApp {
         let dir = self.export_dir.clone();
         let r = self.ws.export_fab(&dir);
         self.note(r, |v| format!("exported {} files to {}", v["files"].as_array().map_or(0, Vec::len), v["dir"].as_str().unwrap_or("")));
+    }
+
+    /// Labs ORDER: the archive for the chosen house into the export directory, and its sheet.
+    pub fn package_for_house(&mut self) {
+        let path = format!("{}/{}-{}.zip", self.export_dir, if self.ws.design.is_empty() { "board" } else { &self.ws.design }, self.house.id());
+        let r = self.ws.export_zip(&path, self.house);
+        if let Ok(v) = &r {
+            self.order_sheet = v["order_sheet"].as_str().map(str::to_string);
+        }
+        self.note(r, |v| {
+            format!("packaged {} files for {} into {}", v["files"], v["house"].as_str().unwrap_or(""), v["path"].as_str().unwrap_or(""))
+        });
     }
 
     pub fn zoom_extents(&mut self) {
@@ -441,6 +460,9 @@ impl BoardApp {
                     ui.label(egui::RichText::new("Export to").color(t.text_dim));
                     ui.add(egui::TextEdit::singleline(&mut self.export_dir).desired_width(120.0));
                     ui.end_row();
+                    ui.label(egui::RichText::new("Labs").color(t.text_dim));
+                    ui.checkbox(&mut self.labs_order, egui::RichText::new("Order packages").font(theme::small()));
+                    ui.end_row();
                 });
             });
             Self::palette_header(ui, "STATUS");
@@ -474,6 +496,9 @@ impl BoardApp {
                     row(ui, "DRC", "not run".into(), t.text_faint);
                 }
             });
+            if self.labs_order {
+                self.order_section(ui);
+            }
             Self::palette_header(ui, "DRC");
             egui::ScrollArea::vertical().id_salt("drc").show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -557,6 +582,36 @@ impl BoardApp {
                 board_chat::Event::Done => {}
             }
         }
+    }
+
+    /// Labs: pick a board house, write its archive, read the order sheet. There is no order button:
+    /// neither house has a public ordering API without a merchant account, so the sheet says
+    /// where to upload the archive instead.
+    fn order_section(&mut self, ui: &mut egui::Ui) {
+        let t = Tokens::get();
+        Self::palette_header(ui, "ORDER (LABS)");
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("House").color(t.text_dim));
+                egui::ComboBox::from_id_salt("house").selected_text(self.house.label()).width(150.0).show_ui(ui, |ui| {
+                    for h in board_agent::FabHouse::ALL {
+                        ui.selectable_value(&mut self.house, h, h.label());
+                    }
+                });
+            });
+            let can = self.ws.board.is_some();
+            if ui.add_enabled(can, egui::Button::new("Package ZIP")).on_hover_text("Write the archive this house's upload form takes").clicked() {
+                self.package_for_house();
+            }
+            if !can {
+                ui.label(egui::RichText::new("Place and route first.").font(theme::small()).color(t.text_faint));
+            }
+            if let Some(sheet) = &self.order_sheet {
+                for line in sheet.lines().filter(|l| !l.is_empty()) {
+                    ui.label(egui::RichText::new(line).font(theme::mono()).color(t.text_dim));
+                }
+            }
+        });
     }
 
     fn agent_section(&mut self, ui: &mut egui::Ui) {

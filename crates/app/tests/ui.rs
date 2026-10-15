@@ -88,7 +88,7 @@ fn a_chat_line_becomes_a_fabrication_zip() {
     assert!(h.state().ws.drc_run && h.state().ws.violations.is_empty());
     let bytes = std::fs::read(&zip).unwrap();
     let entries = board_agent::zipfile::read_zip(&bytes).unwrap();
-    assert_eq!(entries.len(), 14);
+    assert_eq!(entries.len(), 15);
     assert!(entries.iter().any(|(n, _)| n == "board-F_Cu.gtl"));
     std::fs::remove_file(&zip).unwrap();
     assert_eq!(server.join().unwrap().len(), 5);
@@ -105,4 +105,24 @@ fn three_d_preview_snapshot() {
     h.run();
     assert!(h.state().three_d);
     h.snapshot("sensor_node_3d");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs a software Vulkan adapter")]
+fn labs_order_palette_is_absent_until_switched_on() {
+    let mut h = harness();
+    h.run();
+    assert!(h.query_by_label("Package ZIP").is_none(), "Labs off: nothing drawn");
+    h.get_by_label("Route").click();
+    h.run();
+    h.state_mut().labs_order = true;
+    h.state_mut().export_dir = std::env::temp_dir().join(format!("board-labs-{}", std::process::id())).display().to_string();
+    h.run();
+    h.get_by_label("Package ZIP").click();
+    h.run();
+    let sheet = h.state().order_sheet.clone().expect("order sheet after packaging");
+    assert!(sheet.contains("Layers:          2"), "{sheet}");
+    let dir = h.state().export_dir.clone();
+    assert!(std::path::Path::new(&dir).join("sensor-node-generic.zip").exists());
+    std::fs::remove_dir_all(&dir).ok();
 }

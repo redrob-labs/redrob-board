@@ -7,8 +7,11 @@
 
 #![forbid(unsafe_code)]
 
+pub mod house;
 pub mod workspace;
 pub mod zipfile;
+
+pub use house::{FabHouse, OrderSheet};
 
 use std::path::Path;
 
@@ -98,11 +101,22 @@ fn fab_outer(board: &Board, netlist: &Netlist) -> Vec<(String, String)> {
     v.into_iter().map(|(n, t)| (n.to_string(), t)).collect()
 }
 
+/// The manufacturing files named the way `house` wants them, plus its order sheet as README.txt.
+pub fn fab_files_for(board: &Board, netlist: &Netlist, house: FabHouse) -> Vec<(String, String)> {
+    let mut files: Vec<(String, String)> = fab_files(board, netlist).into_iter().map(|(n, t)| (house.rename(&n), t)).collect();
+    files.push(("README.txt".into(), OrderSheet::from_board(board, netlist, house, &RouteRules::default()).text()));
+    files
+}
+
 /// Every manufacturing file into `dir`. Returns the file names written.
 pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Result<Vec<String>> {
+    export_fab_for(board, netlist, dir, FabHouse::Generic)
+}
+
+pub fn export_fab_for(board: &Board, netlist: &Netlist, dir: &Path, house: FabHouse) -> std::io::Result<Vec<String>> {
     std::fs::create_dir_all(dir)?;
     let mut names = Vec::new();
-    for (name, text) in fab_files(board, netlist) {
+    for (name, text) in fab_files_for(board, netlist, house) {
         std::fs::write(dir.join(&name), text)?;
         names.push(name);
     }
@@ -112,7 +126,11 @@ pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Resu
 /// The manufacturing files as one ZIP archive (the upload a board house takes). Gerbers and drill
 /// sit at the archive root, as the upload forms expect; the BOM, CPL and JSON beside them.
 pub fn fab_zip(board: &Board, netlist: &Netlist) -> Vec<u8> {
-    let files: Vec<(String, Vec<u8>)> = fab_files(board, netlist).into_iter().map(|(n, t)| (n, t.into_bytes())).collect();
+    fab_zip_for(board, netlist, FabHouse::Generic)
+}
+
+pub fn fab_zip_for(board: &Board, netlist: &Netlist, house: FabHouse) -> Vec<u8> {
+    let files: Vec<(String, Vec<u8>)> = fab_files_for(board, netlist, house).into_iter().map(|(n, t)| (n, t.into_bytes())).collect();
     let mut out = Vec::new();
     zipfile::write_zip(&mut out, &files).expect("writing to a Vec cannot fail");
     out
@@ -120,11 +138,15 @@ pub fn fab_zip(board: &Board, netlist: &Netlist) -> Vec<u8> {
 
 /// Write the ZIP archive to `path`; returns the number of files inside.
 pub fn export_zip(board: &Board, netlist: &Netlist, path: &Path) -> std::io::Result<usize> {
+    export_zip_for(board, netlist, path, FabHouse::Generic)
+}
+
+pub fn export_zip_for(board: &Board, netlist: &Netlist, path: &Path, house: FabHouse) -> std::io::Result<usize> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let n = fab_files(board, netlist).len();
-    std::fs::write(path, fab_zip(board, netlist))?;
+    let n = fab_files_for(board, netlist, house).len();
+    std::fs::write(path, fab_zip_for(board, netlist, house))?;
     Ok(n)
 }
 
@@ -243,8 +265,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("board-agent-{}", std::process::id()));
         let r = run_tool(ToolCall::ExportFab { board, netlist, dir: dir.display().to_string() });
         let ToolResult::Exported { files } = r else { panic!("{r:?}") };
-        assert_eq!(files.len(), 14);
+        assert_eq!(files.len(), 15);
         assert!(dir.join("bom.csv").exists());
+        assert!(dir.join("README.txt").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
