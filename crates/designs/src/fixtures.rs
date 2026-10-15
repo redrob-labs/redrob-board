@@ -89,7 +89,7 @@ pub fn sensor_node_hand() -> Board {
     b.place("U3", fp("Package_TO_SOT_SMD:SOT-23-5"), Point::new(Nm::um(4500), Nm::mm(20)), 0, false);
     b.place("C1", fp("Resistor_SMD:R_0603_1608Metric"), Point::new(Nm::um(4500), Nm::mm(23)), 0, false);
     b.place("C2", fp("Resistor_SMD:R_0603_1608Metric"), Point::mm(23, 20), 0, false);
-    b.place("U2", fp("Package_TO_SOT_SMD:SOT-23-5"), Point::mm(24, 3), 0, false);
+    b.place("U2", fp("Redrob_Sensor:AHT20_3x3mm"), Point::mm(24, 3), 0, false);
     b.place("C4", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(24, 6), 0, false);
     b.place("R3", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(26, 20), 0, false);
     b.place("R4", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(26, 22), 0, false);

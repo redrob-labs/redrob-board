@@ -338,6 +338,66 @@ pub mod footprints {
         }
     }
 
+    /// ESP32-C3-MINI-1 (Espressif datasheet, section "Recommended PCB Land Pattern"): 13.2 x 16.6
+    /// mm module, 0.8 mm pitch. Pins 1-11 down the left edge (pin 1 top), 12-24 along the bottom
+    /// left to right, 25-35 up the right edge, 36-48 along the top right to left under the antenna
+    /// keep-out, 49 the 5.4 x 5.4 mm ground plate under the body, 50-53 the corner ground pads.
+    /// Pin functions are the datasheet's (GND 1,2,11,14,36-53; 3V3 3; EN 8; IO0 12; IO1 13; IO10
+    /// 16; IO4-IO9 18-23; IO18/19 26/27; IO20/U0RXD 30; IO21/U0TXD 31) and live in the schematic.
+    /// The courtyard spans the whole module including the antenna area (13.6 x 17.0 mm).
+    pub fn esp32_c3_mini_1() -> Footprint {
+        let pitch = Nm::um(800);
+        let along_y = PadShape::Rect { width: Nm::um(800), height: Nm::um(400) }; // left/right edges
+        let along_x = PadShape::Rect { width: Nm::um(400), height: Nm::um(800) }; // top/bottom edges
+        let corner = PadShape::Rect { width: Nm::um(700), height: Nm::um(700) };
+        let (edge_x, top_y, bottom_y) = (Nm::um(5900), Nm::um(2200), -Nm::um(7600));
+        let mut pads = Vec::new();
+        let mut n = 1;
+        let mut push = |at: Point, shape: PadShape| {
+            pads.push(Pad::smd(n.to_string(), at, shape, Layer::FrontCopper));
+            n += 1;
+        };
+        for i in 0..11 {
+            push(Point::new(-edge_x, Nm::um(1300) - pitch * i), along_y);
+        }
+        for i in 0..13 {
+            push(Point::new(-Nm::um(4800) + pitch * i, bottom_y), along_x);
+        }
+        for i in 0..11 {
+            push(Point::new(edge_x, -Nm::um(6700) + pitch * i), along_y);
+        }
+        for i in 0..13 {
+            push(Point::new(Nm::um(4800) - pitch * i, top_y), along_x);
+        }
+        push(Point::new(Nm::ZERO, -Nm::um(2700)), PadShape::Rect { width: Nm::um(5400), height: Nm::um(5400) });
+        push(Point::new(Nm::um(5950), Nm::um(2250)), corner);
+        push(Point::new(Nm::um(5950), -Nm::um(7650)), corner);
+        push(Point::new(-Nm::um(5950), -Nm::um(7650)), corner);
+        push(Point::new(-Nm::um(5950), Nm::um(2250)), corner);
+        Footprint { id: "Redrob_RF_Module:ESP32-C3-MINI-1".into(), pads, courtyard: Rect::centered(Point::ORIGIN, Nm::um(13600), Nm::um(17000)) }
+    }
+
+    /// AHT20 humidity/temperature sensor (ASAIR datasheet V1.0, figure 8): 3 x 3 mm six-pad
+    /// no-lead package, two columns 2.0 mm apart, three rows at 1.0 mm, pads 0.8 x 0.5 mm. Pin 1
+    /// top-left, 2 and 3 below it, 4 bottom-right, 5 and 6 above it (top view). Functions: 1 NC,
+    /// 2 VDD, 3 SCL, 4 SDA, 5 GND, 6 NC.
+    pub fn aht20_3x3() -> Footprint {
+        let shape = PadShape::Rect { width: Nm::um(800), height: Nm::um(500) };
+        let (x, p) = (Nm::mm(1), Nm::mm(1));
+        Footprint {
+            id: "Redrob_Sensor:AHT20_3x3mm".into(),
+            pads: vec![
+                Pad::smd("1", Point::new(-x, p), shape, Layer::FrontCopper),
+                Pad::smd("2", Point::new(-x, Nm::ZERO), shape, Layer::FrontCopper),
+                Pad::smd("3", Point::new(-x, -p), shape, Layer::FrontCopper),
+                Pad::smd("4", Point::new(x, -p), shape, Layer::FrontCopper),
+                Pad::smd("5", Point::new(x, Nm::ZERO), shape, Layer::FrontCopper),
+                Pad::smd("6", Point::new(x, p), shape, Layer::FrontCopper),
+            ],
+            courtyard: Rect::centered(Point::ORIGIN, Nm::um(3500), Nm::um(3500)),
+        }
+    }
+
     /// 2.54 mm pin header, 1 x n, vertical. Pin 1 at the origin, others along +x.
     pub fn pin_header_1xn(n: usize) -> Footprint {
         let pitch = Nm::um(2540);
