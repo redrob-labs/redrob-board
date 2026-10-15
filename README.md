@@ -4,7 +4,7 @@ Redrob Board is an agentic PCB design studio that takes a spoken spec to a facto
 
 한국어: [README.ko.md](./README.ko.md)
 
-![Redrob Board v0.1.0: the sensor node placed, routed and DRC-clean](docs/img/app-sensor-node.png)
+![Redrob Board: the sensor node placed, routed and DRC-clean](docs/img/app-sensor-node.png)
 
 ## What it is
 

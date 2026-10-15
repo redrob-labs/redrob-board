@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "board-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-bom",
  "board-catalog",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "board-bom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-catalog",
  "board-designs",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "board-catalog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-netlist",
  "board-schematic",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "board-chat"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-agent",
  "redrob-engine-client",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "board-designs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-drc",
  "board-geom",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "board-drc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-geom",
  "board-layout",
@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "board-geom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-units",
  "serde",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "board-gerber"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-geom",
  "board-layout",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "board-kicad"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-drc",
  "board-geom",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "board-layout"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-geom",
  "board-units",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "board-lib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-geom",
  "board-layout",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "board-netlist"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "board-oracle"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-designs",
  "board-drc",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "board-place"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-designs",
  "board-drc",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "board-route"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-designs",
  "board-drc",
@@ -656,14 +656,14 @@ dependencies = [
 
 [[package]]
 name = "board-schematic"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-netlist",
 ]
 
 [[package]]
 name = "board-sim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-catalog",
  "board-designs",
@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "board-units"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
@@ -2812,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "redrob-board"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "board-agent",
  "board-chat",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "redrob-board-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui",
@@ -4326,7 +4326,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "zbus"
