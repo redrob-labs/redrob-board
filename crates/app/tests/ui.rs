@@ -8,7 +8,7 @@ use egui_kittest::kittest::Queryable;
 
 fn harness<'a>() -> Harness<'a, BoardApp> {
     // Through eframe's `App::ui`, margin-free like the shipped window, so the snapshot is the window.
-    Harness::builder().with_size(egui::vec2(1100.0, 720.0)).build_eframe(|_cc| BoardApp::default())
+    Harness::builder().with_size(egui::vec2(1100.0, 720.0)).build_eframe(|_cc| BoardApp::default().without_agent())
 }
 
 #[test]
@@ -17,14 +17,14 @@ fn buttons_drive_the_pipeline() {
     h.run();
     h.get_by_label("Place").click();
     h.run();
-    assert_eq!(h.state().board.as_ref().map(|b| b.placements.len()), Some(14));
+    assert_eq!(h.state().ws.board.as_ref().map(|b| b.placements.len()), Some(14));
     h.get_by_label("Route").click();
     h.run();
-    assert_eq!(h.state().route_complete, Some(true));
+    assert_eq!(h.state().ws.route_complete, Some(true));
     h.get_by_label("Check").click();
     h.run();
-    assert!(h.state().drc_run);
-    assert!(h.state().violations.is_empty(), "{:?}", h.state().violations);
+    assert!(h.state().ws.drc_run);
+    assert!(h.state().ws.violations.is_empty(), "{:?}", h.state().ws.violations);
     h.get_by_label("DRC clean");
     assert!(h.state().log.iter().any(|l| l.starts_with("routed:")));
 }

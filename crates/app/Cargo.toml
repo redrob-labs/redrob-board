@@ -18,6 +18,8 @@ board-designs = { workspace = true }
 board-drc = { workspace = true }
 board-place = { workspace = true }
 board-agent = { workspace = true }
+board-chat = { workspace = true }
+serde_json = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
 

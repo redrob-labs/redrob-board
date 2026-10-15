@@ -11,14 +11,11 @@
 pub mod icons;
 pub mod theme;
 
-use std::path::PathBuf;
-
-use board_agent::{drc_design, example_design, example_names, export_fab, place_design, route_design};
-use board_designs::library;
-use board_drc::{Rule, Violation};
+use board_agent::example_names;
+use board_agent::workspace::Workspace;
+use board_drc::Rule;
 use board_geom::{Point, Rect};
-use board_layout::{Board, Layer};
-use board_netlist::Netlist;
+use board_layout::Layer;
 use board_place::Edge;
 use board_units::Nm;
 use egui::{Color32, Pos2, Sense, Stroke, Vec2, pos2, vec2};
@@ -30,6 +27,7 @@ const TOOLBAR_H: f32 = 34.0;
 const STATUS_H: f32 = 24.0;
 const LOG_H: f32 = 110.0;
 const PALETTE_W: f32 = 230.0;
+const AGENT_H: f32 = 240.0;
 
 /// Which drawing layers the canvas shows. Every toggle is a real filter on the painter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,18 +48,14 @@ impl Default for Visible {
 }
 
 pub struct BoardApp {
-    pub design: String,
+    pub ws: Workspace,
     pub width_mm: f64,
     pub height_mm: f64,
     pub edge_parts: Vec<(String, Edge)>,
-    pub netlist: Option<Netlist>,
-    pub board: Option<Board>,
-    pub violations: Vec<Violation>,
-    pub drc_run: bool,
-    pub route_complete: Option<bool>,
     pub export_dir: String,
     pub log: Vec<String>,
     pub visible: Visible,
+    pub chat: Chat,
     /// Cursor position over the canvas, in board millimetres (status bar).
     cursor_mm: Option<(f64, f64)>,
     /// View: screen points per millimetre and the world point at the canvas centre.
@@ -70,21 +64,38 @@ pub struct BoardApp {
     styled: bool,
 }
 
+/// One line of the agent transcript.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatLine {
+    User(String),
+    Agent(String),
+    Tool(String),
+    Notice(String),
+}
+
+/// The agent palette's state. `agent` is `None` until the engine answers (or refuses).
+#[derive(Default)]
+pub struct Chat {
+    pub input: String,
+    pub lines: Vec<ChatLine>,
+    pub agent: Option<board_chat::Agent>,
+    /// Why there is no agent, when the engine could not be reached.
+    pub unavailable: Option<String>,
+    /// Set once the first connection attempt has been made (lazily, on first use).
+    pub tried: bool,
+}
+
 impl Default for BoardApp {
     fn default() -> Self {
         BoardApp {
-            design: "sensor-node".into(),
+            ws: Workspace { design: "sensor-node".into(), ..Workspace::default() },
             width_mm: 30.0,
             height_mm: 25.0,
             edge_parts: vec![("J1".into(), Edge::Left), ("SW1".into(), Edge::Right)],
-            netlist: None,
-            board: None,
-            violations: Vec::new(),
-            drc_run: false,
-            route_complete: None,
             export_dir: "fab".into(),
             log: Vec::new(),
             visible: Visible::default(),
+            chat: Chat::default(),
             cursor_mm: None,
             zoom: 12.0,
             center: None,
@@ -94,69 +105,54 @@ impl Default for BoardApp {
 }
 
 impl BoardApp {
-    pub fn load(&mut self) {
-        match example_design(&self.design) {
-            Some(n) => {
-                self.log.push(format!("loaded {}: {} parts, {} nets", self.design, n.components.len(), n.nets.len()));
-                self.netlist = Some(n);
-                self.board = None;
-                self.violations.clear();
-                self.drc_run = false;
-                self.route_complete = None;
-            }
-            None => self.log.push(format!("no design named {}", self.design)),
+    /// No engine connection attempt: the palette says the agent is off. For headless tests.
+    pub fn without_agent(mut self) -> Self {
+        self.chat.tried = true;
+        self.chat.unavailable = Some("Agent off: no engine connection in this session.".into());
+        self
+    }
+
+    fn note(&mut self, r: Result<serde_json::Value, String>, ok: impl Fn(&serde_json::Value) -> String) {
+        match r {
+            Ok(v) => self.log.push(ok(&v)),
+            Err(e) => self.log.push(e),
         }
+    }
+
+    pub fn load(&mut self) {
+        let name = self.ws.design.clone();
+        let r = self.ws.load_example(&name);
+        self.note(r, |v| format!("loaded {}: {} parts, {} nets", v["loaded"].as_str().unwrap_or(""), v["parts"], v["nets"]));
     }
 
     pub fn place(&mut self) {
-        if self.netlist.is_none() {
-            self.load();
+        let r = self.ws.place(self.width_mm, self.height_mm, &self.edge_parts, 1);
+        if r.is_ok() {
+            self.center = None;
         }
-        let Some(netlist) = &self.netlist else { return };
-        match place_design(netlist, &library(), self.width_mm, self.height_mm, &self.edge_parts, 1) {
-            Ok(b) => {
-                self.log.push(format!("placed {} parts on {} x {} mm", b.placements.len(), self.width_mm, self.height_mm));
-                self.board = Some(b);
-                self.violations.clear();
-                self.drc_run = false;
-                self.route_complete = None;
-                self.center = None;
-            }
-            Err(e) => self.log.push(format!("place failed: {e}")),
-        }
+        self.note(r, |v| format!("placed {} parts on {} x {} mm", v["placed"], v["outline_mm"][0], v["outline_mm"][1]));
     }
 
     pub fn route(&mut self) {
-        if self.board.is_none() {
+        if self.ws.board.is_none() {
             self.place();
         }
-        let (Some(board), Some(netlist)) = (&mut self.board, &self.netlist) else { return };
-        let r = route_design(board, netlist);
-        self.route_complete = Some(r.is_complete());
-        let verdict = if r.is_complete() { "complete".to_string() } else { format!("incomplete {:?}", r.failed) };
-        self.log.push(format!("routed: {} tracks, {} vias, {verdict}", r.tracks, r.vias));
-        self.drc_run = false;
+        let r = self.ws.route();
+        self.note(r, |v| {
+            let verdict = if v["complete"] == true { "complete".to_string() } else { format!("incomplete {}", v["failed"]) };
+            format!("routed: {} tracks, {} vias, {verdict}", v["tracks"], v["vias"])
+        });
     }
 
     pub fn drc(&mut self) {
-        let (Some(board), Some(netlist)) = (&self.board, &self.netlist) else {
-            self.log.push("nothing to check: place first".into());
-            return;
-        };
-        self.violations = drc_design(board, netlist);
-        self.drc_run = true;
-        self.log.push(format!("drc: {} violations", self.violations.len()));
+        let r = self.ws.drc();
+        self.note(r, |v| format!("drc: {} violations", v["total"]));
     }
 
     pub fn export(&mut self) {
-        let (Some(board), Some(netlist)) = (&self.board, &self.netlist) else {
-            self.log.push("nothing to export: place first".into());
-            return;
-        };
-        match export_fab(board, netlist, &PathBuf::from(&self.export_dir)) {
-            Ok(files) => self.log.push(format!("exported {} files to {}", files.len(), self.export_dir)),
-            Err(e) => self.log.push(format!("export failed: {e}")),
-        }
+        let dir = self.export_dir.clone();
+        let r = self.ws.export_fab(&dir);
+        self.note(r, |v| format!("exported {} files to {}", v["files"].as_array().map_or(0, Vec::len), v["dir"].as_str().unwrap_or("")));
     }
 
     pub fn zoom_extents(&mut self) {
@@ -169,6 +165,7 @@ impl BoardApp {
             theme::apply(root.ctx());
             self.styled = true;
         }
+        self.pump_agent(root.ctx());
         self.title_and_toolbar(root);
         self.status_bar(root);
         self.log_panel(root);
@@ -184,11 +181,11 @@ impl BoardApp {
         let t = Tokens::get();
         egui::Panel::top("rb_title_toolbar").exact_size(TITLE_H + TOOLBAR_H).frame(egui::Frame::NONE.fill(t.chrome)).show(root, |ui| {
             let r = ui.max_rect();
-            let title = match &self.board {
+            let title = match &self.ws.board {
                 Some(b) => {
-                    format!("Redrob Board      {}  ·  {} x {} mm  ·  {} parts", self.design, self.width_mm, self.height_mm, b.placements.len())
+                    format!("Redrob Board      {}  ·  {} x {} mm  ·  {} parts", self.ws.design, self.width_mm, self.height_mm, b.placements.len())
                 }
-                None => format!("Redrob Board      {}", self.design),
+                None => format!("Redrob Board      {}", self.ws.design),
             };
             ui.painter().text(
                 pos2(r.center().x, r.top() + TITLE_H / 2.0 + 1.0),
@@ -261,18 +258,18 @@ impl BoardApp {
                 t.text,
             ));
             cells.push((format!("{:.0}%", self.zoom / 12.0 * 100.0), t.text_dim));
-            match &self.board {
+            match &self.ws.board {
                 Some(b) => cells.push((format!("{} parts · {} tracks · {} vias", b.placements.len(), b.tracks.len(), b.vias.len()), t.text_dim)),
                 None => cells.push(("no board".into(), t.text_faint)),
             }
-            if let Some(c) = self.route_complete {
+            if let Some(c) = self.ws.route_complete {
                 cells.push(if c { ("routing complete".into(), t.text) } else { ("routing incomplete".into(), t.drc_unrouted) });
             }
-            if self.drc_run {
-                cells.push(if self.violations.is_empty() {
+            if self.ws.drc_run {
+                cells.push(if self.ws.violations.is_empty() {
                     ("DRC clean".into(), t.icon_accent)
                 } else {
-                    (format!("DRC: {} violations", self.violations.len()), t.drc_error)
+                    (format!("DRC: {} violations", self.ws.violations.len()), t.drc_error)
                 });
             }
             let mut x = r.left() + 10.0;
@@ -284,8 +281,9 @@ impl BoardApp {
                 p.vline(x - 7.0, (r.top() + 6.0)..=(r.bottom() - 6.0), Stroke::new(1.0, t.border));
             }
             // Accessible mirror of the verdicts for screen readers and the headless test.
-            if self.drc_run {
-                let label = if self.violations.is_empty() { "DRC clean".to_string() } else { format!("DRC: {} violations", self.violations.len()) };
+            if self.ws.drc_run {
+                let label =
+                    if self.ws.violations.is_empty() { "DRC clean".to_string() } else { format!("DRC: {} violations", self.ws.violations.len()) };
                 ui.allocate_rect(egui::Rect::from_min_size(pos2(x, r.top()), vec2(1.0, 1.0)), Sense::hover())
                     .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label.clone()));
             }
@@ -363,7 +361,7 @@ impl BoardApp {
             Self::palette_header(ui, "PARTS");
             egui::ScrollArea::vertical().id_salt("parts").show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                match (&self.board, &self.netlist) {
+                match (&self.ws.board, &self.ws.netlist) {
                     (Some(b), _) => {
                         for p in &b.placements {
                             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
@@ -394,13 +392,14 @@ impl BoardApp {
         let t = Tokens::get();
         egui::Panel::right("rb_right").exact_size(PALETTE_W).frame(egui::Frame::NONE.fill(t.panel)).show(root, |ui| {
             ui.painter().vline(ui.max_rect().left(), ui.max_rect().y_range(), Stroke::new(1.0, t.border));
+            self.agent_section(ui);
             Self::palette_header(ui, "PROPERTIES");
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                 egui::Grid::new("props").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
                     ui.label(egui::RichText::new("Design").color(t.text_dim));
-                    egui::ComboBox::from_id_salt("design").selected_text(self.design.clone()).width(120.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("design").selected_text(self.ws.design.clone()).width(120.0).show_ui(ui, |ui| {
                         for n in example_names() {
-                            ui.selectable_value(&mut self.design, n.to_string(), *n);
+                            ui.selectable_value(&mut self.ws.design, n.to_string(), *n);
                         }
                     });
                     ui.end_row();
@@ -430,24 +429,24 @@ impl BoardApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(egui::RichText::new(v).color(c)));
                     });
                 };
-                match &self.netlist {
+                match &self.ws.netlist {
                     Some(n) => row(ui, "Netlist", format!("{} parts, {} nets", n.components.len(), n.nets.len()), t.text),
                     None => row(ui, "Netlist", "not loaded".into(), t.text_faint),
                 }
-                match &self.board {
+                match &self.ws.board {
                     Some(b) => row(ui, "Board", format!("{} tracks, {} vias", b.tracks.len(), b.vias.len()), t.text),
                     None => row(ui, "Board", "not placed".into(), t.text_faint),
                 }
-                match self.route_complete {
+                match self.ws.route_complete {
                     Some(true) => row(ui, "Routing", "complete".into(), t.icon_accent),
                     Some(false) => row(ui, "Routing", "incomplete".into(), t.drc_unrouted),
                     None => row(ui, "Routing", "—".into(), t.text_faint),
                 }
-                if self.drc_run {
-                    if self.violations.is_empty() {
+                if self.ws.drc_run {
+                    if self.ws.violations.is_empty() {
                         row(ui, "DRC", "clean".into(), t.icon_accent);
                     } else {
-                        row(ui, "DRC", format!("{} violations", self.violations.len()), t.drc_error);
+                        row(ui, "DRC", format!("{} violations", self.ws.violations.len()), t.drc_error);
                     }
                 } else {
                     row(ui, "DRC", "not run".into(), t.text_faint);
@@ -456,16 +455,127 @@ impl BoardApp {
             Self::palette_header(ui, "DRC");
             egui::ScrollArea::vertical().id_salt("drc").show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                if self.drc_run && self.violations.is_empty() {
+                if self.ws.drc_run && self.ws.violations.is_empty() {
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("   no violations").font(theme::small()).color(t.text_faint));
                 }
-                for v in &self.violations {
+                for v in &self.ws.violations {
                     let c = if v.rule == Rule::Unrouted { t.drc_unrouted } else { t.drc_error };
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
                     ui.painter().circle_filled(pos2(r.left() + 12.0, r.center().y), 3.5, c);
                     let g = ui.painter().layout_no_wrap(v.to_string(), theme::small(), t.text);
                     ui.painter().galley(pos2(r.left() + 22.0, r.center().y - g.size().y / 2.0), g, t.text);
+                }
+            });
+        });
+    }
+
+    // ---- agent --------------------------------------------------------------------------------
+
+    /// Connect to the engine on first use; afterwards the palette shows either the chat or why not.
+    fn connect_agent(&mut self) {
+        if self.chat.tried {
+            return;
+        }
+        self.chat.tried = true;
+        match board_chat::connect() {
+            Ok(record) => {
+                let session = format!("board-{}", std::process::id());
+                self.chat.agent = Some(board_chat::Agent::spawn(board_chat::ChatClient::for_engine(&record, &session)));
+                self.chat.lines.push(ChatLine::Notice(format!("Redrob Code engine v{} connected", record.version)));
+            }
+            Err(e) => self.chat.unavailable = Some(e.to_string()),
+        }
+    }
+
+    /// Drain the agent's events: run its tool calls on the workspace, show its text.
+    fn pump_agent(&mut self, ctx: &egui::Context) {
+        let Some(agent) = &mut self.chat.agent else { return };
+        let events = agent.poll();
+        if agent.busy {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        for ev in events {
+            match ev {
+                board_chat::Event::ToolCalls(calls) => {
+                    let had_board = self.ws.board.is_some();
+                    let results = board_chat::run_tool_calls(&mut self.ws, &calls);
+                    if !had_board && self.ws.board.is_some() {
+                        self.center = None;
+                    }
+                    for (c, (_, out)) in calls.iter().zip(&results) {
+                        let short = if out.len() > 140 {
+                            format!("{}…", &out[..out.char_indices().nth(140).map_or(out.len(), |(i, _)| i)])
+                        } else {
+                            out.clone()
+                        };
+                        self.chat.lines.push(ChatLine::Tool(format!("{}({}) → {short}", c.function.name, c.function.arguments.trim())));
+                        self.log.push(format!("agent: {}", c.function.name));
+                    }
+                    if let Some(agent) = &mut self.chat.agent {
+                        agent.tool_results(results);
+                    }
+                }
+                board_chat::Event::Text(t) => self.chat.lines.push(ChatLine::Agent(t)),
+                board_chat::Event::Error(e) => self.chat.lines.push(ChatLine::Notice(e)),
+                board_chat::Event::Done => {}
+            }
+        }
+    }
+
+    fn agent_section(&mut self, ui: &mut egui::Ui) {
+        let t = Tokens::get();
+        egui::Panel::bottom("rb_agent").exact_size(AGENT_H).frame(egui::Frame::NONE.fill(t.panel)).show(ui, |ui| {
+            ui.painter().hline(ui.max_rect().x_range(), ui.max_rect().top(), Stroke::new(1.0, t.border));
+            Self::palette_header(ui, "AGENT");
+            self.connect_agent();
+            let busy = self.chat.agent.as_ref().is_some_and(|a| a.busy);
+            let input_h = 28.0;
+            let transcript_h = (ui.available_height() - input_h - 8.0).max(0.0);
+            egui::ScrollArea::vertical().id_salt("agent").max_height(transcript_h).stick_to_bottom(true).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.add_space(4.0);
+                if let Some(why) = &self.chat.unavailable {
+                    ui.label(egui::RichText::new(why.as_str()).font(theme::small()).color(t.drc_unrouted));
+                    ui.label(
+                        egui::RichText::new("Install or start Redrob Code from Redrob Launcher, then reopen this window.")
+                            .font(theme::small())
+                            .color(t.text_dim),
+                    );
+                } else if self.chat.lines.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Ask for a board: \"ESP32 sensor node on 30 x 25 mm, connector left\".")
+                            .font(theme::small())
+                            .color(t.text_faint),
+                    );
+                }
+                for line in &self.chat.lines {
+                    let (text, color, font) = match line {
+                        ChatLine::User(x) => (format!("you: {x}"), t.text, theme::body()),
+                        ChatLine::Agent(x) => (x.clone(), t.icon_accent, theme::body()),
+                        ChatLine::Tool(x) => (x.clone(), t.text_faint, theme::mono()),
+                        ChatLine::Notice(x) => (x.clone(), t.text_dim, theme::small()),
+                    };
+                    ui.add(egui::Label::new(egui::RichText::new(text).font(font).color(color)).wrap());
+                }
+                if busy {
+                    ui.label(egui::RichText::new("…").color(t.text_dim));
+                }
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let enabled = self.chat.agent.is_some() && !busy;
+                let edit = egui::TextEdit::singleline(&mut self.chat.input).hint_text("Ask the agent").desired_width(ui.available_width() - 56.0);
+                let resp = ui.add_enabled(enabled, edit);
+                let submit = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let send = ui.add_enabled(enabled, egui::Button::new("Send")).clicked();
+                if (submit || send) && !self.chat.input.trim().is_empty() {
+                    let text = std::mem::take(&mut self.chat.input);
+                    self.chat.lines.push(ChatLine::User(text.clone()));
+                    if let Some(agent) = &mut self.chat.agent {
+                        agent.prompt(&text);
+                    }
+                    resp.request_focus();
                 }
             });
         });
@@ -541,7 +651,7 @@ impl BoardApp {
             painter.hline(rect.x_range(), o.y, Stroke::new(1.0, t.axis_x));
             painter.vline(o.x, rect.y_range(), Stroke::new(1.0, t.axis_y));
         }
-        let Some(board) = &self.board else {
+        let Some(board) = &self.ws.board else {
             painter.rect_stroke(
                 egui::Rect::from_two_pos(to_screen(outline.min), to_screen(outline.max)).translate(Vec2::ZERO),
                 0.0,
@@ -598,7 +708,7 @@ impl BoardApp {
             }
         }
         if self.visible.drc {
-            for v in &self.violations {
+            for v in &self.ws.violations {
                 let color = if v.rule == Rule::Unrouted { t.drc_unrouted } else { t.drc_error };
                 painter.circle_stroke(to_screen(v.at), 6.0, Stroke::new(2.0, color));
             }

@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod workspace;
+
 use std::path::Path;
 
 use board_bom::{bom_csv, cpl_csv};
