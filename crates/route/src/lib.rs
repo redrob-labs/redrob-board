@@ -169,14 +169,27 @@ struct NetWork {
 }
 
 /// Route every net of `netlist` on `board` (two copper layers). Existing tracks and vias are kept
-/// and treated as already-routed copper. Returns what could not be finished.
+/// and treated as already-routed copper. Nets in one of the board's net classes take that class's
+/// track width, clearance and via; the rest take `rules`. Returns what could not be finished.
 pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteReport {
     if board.outline.bbox().is_none() {
         return RouteReport { failed: BTreeMap::new(), tracks: 0, vias: 0 };
     }
-    let mut grid = build_grid(board, netlist, rules);
-    let nets = pad_cells(&grid, board, netlist);
-    let nx = grid.nx;
+    // Class 0 is the default; class k >= 1 is board.netclasses[k - 1].
+    let classes: Vec<RouteRules> = std::iter::once(*rules)
+        .chain(board.netclasses.iter().map(|c| RouteRules {
+            track_width: c.track_width,
+            clearance: c.clearance,
+            via_diameter: c.via_diameter,
+            via_drill: c.via_drill,
+            ..*rules
+        }))
+        .collect();
+    let class_of: Vec<usize> =
+        netlist.nets.iter().map(|n| board.netclasses.iter().position(|c| c.nets.contains(&n.name)).map_or(0, |i| i + 1)).collect();
+    let mut grids: Vec<Grid> = (0..classes.len()).map(|k| build_grid(board, netlist, &classes, &class_of, k)).collect();
+    let nets = pad_cells(&grids[0], board, netlist);
+    let nx = grids[0].nx;
 
     // Smallest nets first.
     let mut order: Vec<usize> = (0..nets.len()).filter(|&i| nets[i].pads.len() >= 2).collect();
@@ -184,7 +197,7 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
         let mut b: Option<Rect> = None;
         for p in &nets[i].pads {
             if let Some(&(_, c)) = p.first() {
-                let pt = grid.center(c % nx, c / nx);
+                let pt = grids[0].center(c % nx, c / nx);
                 let r = Rect::from_points(pt, pt);
                 b = Some(b.map_or(r, |x| x.union(&r)));
             }
@@ -192,8 +205,6 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
         b.map_or(0, |b| (b.width() + b.height()).0)
     });
 
-    let half = rules.track_width / 2;
-    let via_extra_cells = (((rules.via_diameter / 2 - half).0.max(0) as f64) / rules.grid.0 as f64).ceil() as isize;
     let mut failed: BTreeMap<String, usize> = BTreeMap::new();
     let mut new_tracks = Vec::new();
     let mut new_vias = Vec::new();
@@ -207,7 +218,7 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
             let mut t: Vec<usize> = order.iter().copied().filter(|i| failed.contains_key(&nets[*i].name)).collect();
             if pass == 2 {
                 // Clear everything routed so far and lead with the hard ones.
-                grid = build_grid(board, netlist, rules);
+                grids = (0..classes.len()).map(|k| build_grid(board, netlist, &classes, &class_of, k)).collect();
                 new_tracks.clear();
                 new_vias.clear();
                 t.extend(order.iter().copied().filter(|i| !failed.contains_key(&nets[*i].name)));
@@ -219,7 +230,10 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
         }
         failed.clear();
         for ni in todo {
-            let missing = route_net(&mut grid, &nets[ni], rules, via_extra_cells, &mut new_tracks, &mut new_vias);
+            let k = class_of[ni];
+            let r = &classes[k];
+            let via_extra_cells = (((r.via_diameter / 2 - r.track_width / 2).0.max(0) as f64) / r.grid.0 as f64).ceil() as isize;
+            let missing = route_net(&mut grids, &classes, k, &nets[ni], via_extra_cells, &mut new_tracks, &mut new_vias);
             if missing > 0 {
                 failed.insert(nets[ni].name.clone(), missing);
             }
@@ -231,15 +245,22 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
     RouteReport { failed, tracks: board.tracks.len() - before_tracks, vias: board.vias.len() - before_vias }
 }
 
-/// Obstacle map from everything already on the board: outline, pads, tracks, vias.
-fn build_grid(board: &Board, netlist: &Netlist, rules: &RouteRules) -> Grid {
+/// How far a track centre of class `k` must stay from copper of class `m`: half of k's width plus
+/// the larger of the two clearances (the rule a checker applies to that pair).
+fn reach(classes: &[RouteRules], k: usize, m: usize) -> Nm {
+    classes[k].track_width / 2 + classes[k].clearance.max(classes[m].clearance)
+}
+
+/// Obstacle map for tracks of class `k`, from everything already on the board: outline, pads,
+/// tracks, vias.
+fn build_grid(board: &Board, netlist: &Netlist, classes: &[RouteRules], class_of: &[usize], k: usize) -> Grid {
+    let rules = &classes[k];
     let bbox = board.outline.bbox().expect("outline checked by caller");
     let pitch = rules.grid;
     let nx = (bbox.width().0 / pitch.0) as usize + 1;
     let ny = (bbox.height().0 / pitch.0) as usize + 1;
     let mut grid = Grid { origin: bbox.min, pitch, nx, ny, owner: [vec![FREE; nx * ny], vec![FREE; nx * ny]] };
     let half = rules.track_width / 2;
-    let reach = half + rules.clearance;
 
     // A track centre must keep edge_clearance + half width from every outline edge, and cells
     // outside the outline are off limits.
@@ -256,6 +277,7 @@ fn build_grid(board: &Board, netlist: &Netlist, rules: &RouteRules) -> Grid {
         }
     }
     let net_index = |name: &str| netlist.nets.iter().position(|n| n.name == name).map(|i| i as u16);
+    let class_reach = |owner: u16| if owner == BLOCKED { reach(classes, k, k) } else { reach(classes, k, class_of[owner as usize]) };
     for pad in board.all_pads() {
         let owner = if pad.layers.is_empty() {
             BLOCKED
@@ -264,18 +286,18 @@ fn build_grid(board: &Board, netlist: &Netlist, rules: &RouteRules) -> Grid {
         };
         let layers: Vec<usize> = if pad.layers.is_empty() { vec![0, 1] } else { pad.layers.iter().filter_map(|l| layer_index(*l)).collect() };
         for l in layers {
-            grid.claim(l, pad_shape(&pad), reach, owner);
+            grid.claim(l, pad_shape(&pad), class_reach(owner), owner);
         }
     }
     for t in &board.tracks {
         if let (Some(l), Some(n)) = (layer_index(t.layer), net_index(&t.net)) {
-            grid.claim(l, Shape::Stroke { segment: t.segment, half_width: t.width / 2 }, reach, n);
+            grid.claim(l, Shape::Stroke { segment: t.segment, half_width: t.width / 2 }, class_reach(n), n);
         }
     }
     for v in &board.vias {
         if let Some(n) = net_index(&v.net) {
             for l in 0..2 {
-                grid.claim(l, Shape::Circle { center: v.at, radius: v.diameter / 2 }, reach, n);
+                grid.claim(l, Shape::Circle { center: v.at, radius: v.diameter / 2 }, class_reach(n), n);
             }
         }
     }
@@ -318,9 +340,17 @@ fn pad_cells(grid: &Grid, board: &Board, netlist: &Netlist) -> Vec<NetWork> {
     nets
 }
 
-/// Join all pads of one net. Returns the number of connections that could not be made.
-fn route_net(grid: &mut Grid, net: &NetWork, rules: &RouteRules, via_extra: isize, tracks: &mut Vec<Track>, vias: &mut Vec<Via>) -> usize {
-    let n = grid.nx * grid.ny;
+/// Join all pads of one net (class `k`). Returns the number of connections that could not be made.
+fn route_net(
+    grids: &mut [Grid],
+    classes: &[RouteRules],
+    k: usize,
+    net: &NetWork,
+    via_extra: isize,
+    tracks: &mut Vec<Track>,
+    vias: &mut Vec<Via>,
+) -> usize {
+    let n = grids[k].nx * grids[k].ny;
     // Which pad (index into net.pads) each cell belongs to, per layer; usize::MAX = none.
     let mut pad_of = [vec![usize::MAX; n], vec![usize::MAX; n]];
     for (pi, cells) in net.pads.iter().enumerate() {
@@ -334,11 +364,11 @@ fn route_net(grid: &mut Grid, net: &NetWork, rules: &RouteRules, via_extra: isiz
     let mut sources: Vec<(usize, usize)> = net.pads[0].clone();
     let mut missing = 0;
     for _ in 1..net.pads.len() {
-        match search(grid, net.index, &sources, &pad_of, &connected, rules, via_extra) {
+        match search(&grids[k], net.index, &sources, &pad_of, &connected, &classes[k], via_extra) {
             Some((path, reached)) => {
                 connected[reached] = true;
                 sources.extend(net.pads[reached].iter().copied());
-                commit(grid, net, &path, rules, tracks, vias);
+                commit(grids, classes, k, net, &path, tracks, vias);
                 sources.extend(path.iter().copied());
             }
             None => {
@@ -448,11 +478,28 @@ fn via_ok(grid: &Grid, net: u16, x: isize, y: isize, extra: isize) -> bool {
     true
 }
 
-fn commit(grid: &mut Grid, net: &NetWork, path: &[(usize, usize)], rules: &RouteRules, tracks: &mut Vec<Track>, vias: &mut Vec<Via>) {
+fn commit(
+    grids: &mut [Grid],
+    classes: &[RouteRules],
+    k: usize,
+    net: &NetWork,
+    path: &[(usize, usize)],
+    tracks: &mut Vec<Track>,
+    vias: &mut Vec<Via>,
+) {
+    let rules = &classes[k];
     let half = rules.track_width / 2;
-    let reach = half + rules.clearance;
-    let (nx, origin, pitch) = (grid.nx, grid.origin, grid.pitch);
+    let (nx, origin, pitch) = (grids[k].nx, grids[k].origin, grids[k].pitch);
     let pt = move |c: usize| Point::new(origin.x + pitch * (c % nx) as i64, origin.y + pitch * (c / nx) as i64);
+    // New copper of class k is an obstacle for every class j at j's own reach against k.
+    let claim_all = |grids: &mut [Grid], layers: &[usize], shape: Shape| {
+        for (j, g) in grids.iter_mut().enumerate() {
+            let r = reach(classes, j, k);
+            for &l in layers {
+                g.claim(l, shape, r, net.index);
+            }
+        }
+    };
     let mut i = 0;
     while i + 1 < path.len() {
         let (l, c) = path[i];
@@ -460,9 +507,7 @@ fn commit(grid: &mut Grid, net: &NetWork, path: &[(usize, usize)], rules: &Route
         if l != l2 {
             let at = pt(c);
             vias.push(Via { net: net.name.clone(), at, diameter: rules.via_diameter, drill: rules.via_drill });
-            for layer in 0..2 {
-                grid.claim(layer, Shape::Circle { center: at, radius: rules.via_diameter / 2 }, reach, net.index);
-            }
+            claim_all(grids, &[0, 1], Shape::Circle { center: at, radius: rules.via_diameter / 2 });
             i += 1;
             continue;
         }
@@ -486,7 +531,7 @@ fn commit(grid: &mut Grid, net: &NetWork, path: &[(usize, usize)], rules: &Route
         }
         let seg = Segment::new(pt(c), pt(path[j].1));
         tracks.push(Track { net: net.name.clone(), layer: LAYERS[l], segment: seg, width: rules.track_width });
-        grid.claim(l, Shape::Stroke { segment: seg, half_width: half }, reach, net.index);
+        claim_all(grids, &[l], Shape::Stroke { segment: seg, half_width: half });
         i = j;
     }
 }
@@ -494,7 +539,7 @@ fn commit(grid: &mut Grid, net: &NetWork, path: &[(usize, usize)], rules: &Route
 #[cfg(test)]
 mod tests {
     use super::*;
-    use board_designs::fixtures::{divider_netlist, divider_placed, sensor_node_hand};
+    use board_designs::fixtures::{divider_netlist, divider_placed, sensor_node_hand, sensor_node_power_class};
     use board_designs::{library, sensor_node};
     use board_drc::{Rules, check};
     use board_place::{Constraints, Edge, place};
@@ -524,6 +569,30 @@ mod tests {
         assert!(report.is_complete(), "{report:?}");
         let v = check(&board, &netlist, &drc_rules(&rules));
         assert!(v.is_empty(), "{} violations, first: {:?}", v.len(), v.first());
+    }
+
+    /// A Power class: its nets come out wide with wide vias, the rest at the default, and the
+    /// checker (which applies the larger clearance between classes) finds nothing.
+    #[test]
+    fn net_classes_set_width_clearance_and_via_per_net() {
+        let netlist = sensor_node();
+        let mut board = sensor_node_power_class();
+        let rules = RouteRules::default();
+        let report = route(&mut board, &netlist, &rules);
+        assert!(report.is_complete(), "{report:?}");
+        let power: Vec<_> = board.tracks.iter().filter(|t| t.net == "5V" || t.net == "3V3").collect();
+        assert!(!power.is_empty());
+        assert!(power.iter().all(|t| t.width == Nm::um(500)), "power tracks at class width");
+        assert!(board.tracks.iter().filter(|t| t.net == "SDA").all(|t| t.width == Nm::um(250)), "signal tracks at default width");
+        for v in board.vias.iter().filter(|v| v.net == "3V3") {
+            assert_eq!((v.diameter, v.drill), (Nm::um(800), Nm::um(400)));
+        }
+        let v = check(&board, &netlist, &drc_rules(&rules));
+        assert!(v.is_empty(), "{} violations, first: {:?}", v.len(), v.first());
+        // Any 3V3 copper sits at least 0.2 mm from other nets' copper (the class clearance).
+        let strict = Rules { clearance: Nm::um(200), ..drc_rules(&rules) };
+        let strict_v = check(&board, &netlist, &strict);
+        assert!(strict_v.iter().all(|v| !v.message.contains("3V3") && !v.message.contains("5V")), "{strict_v:?}");
     }
 
     #[test]

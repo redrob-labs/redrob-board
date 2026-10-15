@@ -247,6 +247,18 @@ pub struct Via {
     pub drill: Nm,
 }
 
+/// Routing rules for a group of nets: a power class gets wide tracks and more room, a signal
+/// class the defaults. Nets not in any class use the board's default rules.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetClass {
+    pub name: String,
+    pub nets: Vec<String>,
+    pub track_width: Nm,
+    pub clearance: Nm,
+    pub via_diameter: Nm,
+    pub via_drill: Nm,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Board {
     pub outline: Polygon,
@@ -254,6 +266,8 @@ pub struct Board {
     pub placements: Vec<Placement>,
     pub tracks: Vec<Track>,
     pub vias: Vec<Via>,
+    #[serde(default)]
+    pub netclasses: Vec<NetClass>,
 }
 
 impl Board {
@@ -265,7 +279,13 @@ impl Board {
             placements: Vec::new(),
             tracks: Vec::new(),
             vias: Vec::new(),
+            netclasses: Vec::new(),
         }
+    }
+
+    /// The class a net belongs to, if any.
+    pub fn class_of(&self, net: &str) -> Option<&NetClass> {
+        self.netclasses.iter().find(|c| c.nets.iter().any(|n| n == net))
     }
 
     pub fn place(&mut self, refdes: &str, footprint: Footprint, at: Point, quarter_turns: u8, flipped: bool) {

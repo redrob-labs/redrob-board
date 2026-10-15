@@ -174,39 +174,47 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
 }
 
 /// Write the `.kicad_pro` project file that carries the design rules the oracle must apply.
-/// The rule block and the Default net class carry our limits; KiCad supplies defaults for the rest.
-/// Without the net class KiCad would check clearance at its own 0.2 mm default, not ours. The
-/// net_settings block is written as schema version 3: measured against KiCad 9.0.8, version 4
-/// without a `priority` field is silently ignored and the default class comes back.
-pub fn export_project(rules: &Rules) -> String {
+/// The rule block and the Default net class carry our limits; every board net class becomes a
+/// KiCad net class with its nets listed as patterns, so the oracle checks the same width and
+/// clearance per net that our router and checker used. Without the Default class KiCad would check
+/// clearance at its own 0.2 mm default, not ours. The net_settings block is written as schema
+/// version 3: measured against KiCad 9.0.8, version 4 without a `priority` field is silently
+/// ignored and the default class comes back.
+pub fn export_project(rules: &Rules, board: &Board) -> String {
+    use serde_json::json;
     let r = |v: Nm| v.to_mm_f64();
-    format!(
-        concat!(
-            "{{\n  \"board\": {{\n    \"design_settings\": {{\n      \"rules\": {{\n",
-            "        \"min_clearance\": {clearance},\n",
-            "        \"min_copper_edge_clearance\": {edge},\n",
-            "        \"min_hole_clearance\": {clearance},\n",
-            "        \"min_hole_to_hole\": {clearance},\n",
-            "        \"min_through_hole_diameter\": {drill},\n",
-            "        \"min_track_width\": {track},\n",
-            "        \"min_via_annular_width\": {ring},\n",
-            "        \"min_via_diameter\": {via}\n",
-            "      }}\n    }}\n  }},\n",
-            "  \"net_settings\": {{\n    \"classes\": [\n      {{\n        \"name\": \"Default\",\n",
-            "        \"clearance\": {clearance},\n        \"track_width\": {track},\n",
-            "        \"via_diameter\": {via},\n        \"via_drill\": {drill},\n",
-            "        \"bus_width\": 12, \"wire_width\": 6, \"diff_pair_gap\": {clearance}, \"diff_pair_width\": {track}, \"diff_pair_via_gap\": {clearance},\n",
-            "        \"microvia_diameter\": {via}, \"microvia_drill\": {drill}, \"pcb_color\": \"rgba(0, 0, 0, 0.000)\", \"schematic_color\": \"rgba(0, 0, 0, 0.000)\", \"line_style\": 0\n",
-            "      }}\n    ],\n    \"meta\": {{ \"version\": 3 }}\n  }},\n",
-            "  \"meta\": {{ \"filename\": \"board.kicad_pro\", \"version\": 1 }}\n}}\n"
-        ),
-        clearance = r(rules.clearance),
-        edge = r(rules.edge_clearance),
-        drill = r(rules.min_drill),
-        track = r(rules.min_track_width),
-        ring = r(rules.min_annular_ring),
-        via = r(rules.min_drill + rules.min_annular_ring * 2),
-    )
+    let via = rules.min_drill + rules.min_annular_ring * 2;
+    let class = |name: &str, clearance: Nm, track: Nm, via_d: Nm, via_drill: Nm| {
+        json!({
+            "name": name, "clearance": r(clearance), "track_width": r(track), "via_diameter": r(via_d), "via_drill": r(via_drill),
+            "bus_width": 12, "wire_width": 6, "diff_pair_gap": r(clearance), "diff_pair_width": r(track), "diff_pair_via_gap": r(clearance),
+            "microvia_diameter": r(via_d), "microvia_drill": r(via_drill),
+            "pcb_color": "rgba(0, 0, 0, 0.000)", "schematic_color": "rgba(0, 0, 0, 0.000)", "line_style": 0
+        })
+    };
+    let mut classes = vec![class("Default", rules.clearance, rules.min_track_width, via, rules.min_drill)];
+    let mut patterns = Vec::new();
+    for c in &board.netclasses {
+        classes.push(class(&c.name, c.clearance, c.track_width, c.via_diameter, c.via_drill));
+        for n in &c.nets {
+            patterns.push(json!({"netclass": c.name, "pattern": n}));
+        }
+    }
+    let v = json!({
+        "board": {"design_settings": {"rules": {
+            "min_clearance": r(rules.clearance),
+            "min_copper_edge_clearance": r(rules.edge_clearance),
+            "min_hole_clearance": r(rules.clearance),
+            "min_hole_to_hole": r(rules.clearance),
+            "min_through_hole_diameter": r(rules.min_drill),
+            "min_track_width": r(rules.min_track_width),
+            "min_via_annular_width": r(rules.min_annular_ring),
+            "min_via_diameter": r(via)
+        }}},
+        "net_settings": {"classes": classes, "netclass_patterns": patterns, "meta": {"version": 3}},
+        "meta": {"filename": "board.kicad_pro", "version": 1}
+    });
+    serde_json::to_string_pretty(&v).expect("json") + "\n"
 }
 
 fn quote(s: &str) -> String {
@@ -275,8 +283,20 @@ mod tests {
 
     #[test]
     fn project_carries_rules() {
-        let text = export_project(&Rules::default());
+        let mut b = Board::two_layer(Rect::from_points(Point::ORIGIN, Point::mm(10, 10)));
+        b.netclasses.push(board_layout::NetClass {
+            name: "Power".into(),
+            nets: vec!["5V".into(), "GND".into()],
+            track_width: Nm::um(500),
+            clearance: Nm::um(200),
+            via_diameter: Nm::um(800),
+            via_drill: Nm::um(400),
+        });
+        let text = export_project(&Rules::default(), &b);
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["net_settings"]["classes"][1]["name"], "Power");
+        assert_eq!(v["net_settings"]["classes"][1]["track_width"], 0.5);
+        assert_eq!(v["net_settings"]["netclass_patterns"][1], serde_json::json!({"netclass": "Power", "pattern": "GND"}));
         let rules = &v["board"]["design_settings"]["rules"];
         assert_eq!(rules["min_clearance"], 0.127);
         assert_eq!(rules["min_track_width"], 0.127);

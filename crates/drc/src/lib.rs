@@ -207,6 +207,10 @@ fn share_layer(a: &Item, b: &Item) -> bool {
 pub fn check(board: &Board, netlist: &Netlist, rules: &Rules) -> Vec<Violation> {
     let mut out = Vec::new();
     let items = copper_items(board, netlist);
+    // A net in one of the board's classes answers to that class's clearance and width; two items
+    // of different classes keep the larger clearance.
+    let clearance_of = |net: &Option<String>| net.as_deref().and_then(|n| board.class_of(n)).map_or(rules.clearance, |c| c.clearance);
+    let min_width_of = |net: &str| board.class_of(net).map_or(rules.min_track_width, |c| c.track_width);
 
     // Clearance and shorts between copper of different nets.
     for (i, a) in items.iter().enumerate() {
@@ -218,12 +222,13 @@ pub fn check(board: &Board, netlist: &Netlist, rules: &Rules) -> Vec<Violation> 
             if same_net {
                 continue;
             }
+            let clearance = clearance_of(&a.net).max(clearance_of(&b.net));
             if a.shape.closer_than(b.shape, Nm::ZERO) {
                 out.push(Violation { rule: Rule::Short, message: format!("{} touches {}", a.name, b.name), at: a.shape.anchor() });
-            } else if a.shape.closer_than(b.shape, rules.clearance) {
+            } else if a.shape.closer_than(b.shape, clearance) {
                 out.push(Violation {
                     rule: Rule::Clearance,
-                    message: format!("{} to {} closer than {}", a.name, b.name, rules.clearance),
+                    message: format!("{} to {} closer than {}", a.name, b.name, clearance),
                     at: a.shape.anchor(),
                 });
             }
@@ -231,12 +236,9 @@ pub fn check(board: &Board, netlist: &Netlist, rules: &Rules) -> Vec<Violation> 
     }
 
     for (i, t) in board.tracks.iter().enumerate() {
-        if t.width < rules.min_track_width {
-            out.push(Violation {
-                rule: Rule::TrackWidth,
-                message: format!("track#{i} width {} below {}", t.width, rules.min_track_width),
-                at: t.segment.a,
-            });
+        let min = min_width_of(&t.net);
+        if t.width < min {
+            out.push(Violation { rule: Rule::TrackWidth, message: format!("track#{i} width {} below {}", t.width, min), at: t.segment.a });
         }
     }
 

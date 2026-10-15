@@ -26,7 +26,7 @@ fn main() -> ExitCode {
         std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
         let pcb = export_pcb(&board, &netlist).map_err(|e| e.to_string())?;
         std::fs::write(out.join("board.kicad_pcb"), pcb).map_err(|e| e.to_string())?;
-        std::fs::write(out.join("board.kicad_pro"), export_project(&rules)).map_err(|e| e.to_string())?;
+        std::fs::write(out.join("board.kicad_pro"), export_project(&rules, &board)).map_err(|e| e.to_string())?;
         Ok(())
     };
     match run() {

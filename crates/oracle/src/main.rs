@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
-use board_designs::fixtures::{Fixture, divider_netlist, divider_placed, fixtures, sensor_node_hand};
+use board_designs::fixtures::{Fixture, divider_netlist, divider_placed, fixtures, sensor_node_hand, sensor_node_power_class};
 use board_designs::sensor_node;
 use board_drc::{Rules, check, summary};
 use board_gerber::{export_drill, export_layer};
@@ -15,9 +15,11 @@ use board_route::{RouteRules, route};
 /// clean too.
 fn routed_fixtures() -> Vec<Fixture> {
     let mut out = Vec::new();
-    for (name, netlist, mut board) in
-        [("divider_autorouted", divider_netlist(), divider_placed()), ("sensor_node_routed", sensor_node(), sensor_node_hand())]
-    {
+    for (name, netlist, mut board) in [
+        ("divider_autorouted", divider_netlist(), divider_placed()),
+        ("sensor_node_routed", sensor_node(), sensor_node_hand()),
+        ("sensor_node_power_class", sensor_node(), sensor_node_power_class()),
+    ] {
         let report = route(&mut board, &netlist, &RouteRules::default());
         assert!(report.is_complete(), "{name}: {report:?}");
         out.push(Fixture { name, netlist, board });

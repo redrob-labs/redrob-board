@@ -2,7 +2,7 @@
 //! requires KiCad's violation counts to agree with ours.
 
 use board_geom::{Point, Rect, Segment};
-use board_layout::{Board, Layer, Track, Via, footprints};
+use board_layout::{Board, Layer, NetClass, Track, Via, footprints};
 use board_netlist::Netlist;
 use board_schematic::Schematic;
 use board_units::Nm;
@@ -97,6 +97,21 @@ pub fn sensor_node_hand() -> Board {
     b.place("R2", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(10, 23), 0, false);
     b.place("C3", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(14, 23), 0, false);
     b.place("C5", fp("Resistor_SMD:R_0402_1005Metric"), Point::mm(18, 23), 0, false);
+    b
+}
+
+/// The sensor node placed by hand with a Power net class: 5V and 3V3 on 0.5 mm tracks with 0.2 mm
+/// clearance and 0.8/0.4 mm vias. Routed by the oracle fixtures; both checkers must agree.
+pub fn sensor_node_power_class() -> Board {
+    let mut b = sensor_node_hand();
+    b.netclasses.push(NetClass {
+        name: "Power".into(),
+        nets: vec!["5V".into(), "3V3".into()],
+        track_width: Nm::um(500),
+        clearance: Nm::um(200),
+        via_diameter: Nm::um(800),
+        via_drill: Nm::um(400),
+    });
     b
 }
 
