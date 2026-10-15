@@ -10,6 +10,7 @@
 
 pub mod icons;
 pub mod theme;
+pub mod view3d;
 
 use board_agent::example_names;
 use board_agent::workspace::Workspace;
@@ -57,6 +58,9 @@ pub struct BoardApp {
     pub log: Vec<String>,
     pub visible: Visible,
     pub chat: Chat,
+    /// 3D preview instead of the layer view.
+    pub three_d: bool,
+    pub view3d: view3d::View3d,
     /// Cursor position over the canvas, in board millimetres (status bar).
     cursor_mm: Option<(f64, f64)>,
     /// View: screen points per millimetre and the world point at the canvas centre.
@@ -97,6 +101,8 @@ impl Default for BoardApp {
             log: Vec::new(),
             visible: Visible::default(),
             chat: Chat::default(),
+            three_d: false,
+            view3d: view3d::View3d::default(),
             cursor_mm: None,
             zoom: 12.0,
             center: None,
@@ -215,7 +221,11 @@ impl BoardApp {
                     (Icon::Check, "Check", "Run the design rule check"),
                 ],
                 &[(Icon::Export, "Export", "Write the fabrication files")],
-                &[(Icon::ZoomExtents, "Zoom Extents", "Fit the board in the view"), (Icon::Grid, "Grid", "Show or hide the 1 mm grid")],
+                &[
+                    (Icon::ZoomExtents, "Zoom Extents", "Fit the board in the view"),
+                    (Icon::Grid, "Grid", "Show or hide the 1 mm grid"),
+                    (Icon::ThreeD, "3D", "Preview the board in 3D (drag to turn)"),
+                ],
             ];
             let mut clicked: Option<&str> = None;
             for group in groups {
@@ -223,7 +233,7 @@ impl BoardApp {
                     let br = egui::Rect::from_min_size(pos2(x, row.center().y - size / 2.0), vec2(size, size));
                     let resp = ui.interact(br, ui.id().with(("tb", *label)), Sense::click());
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, *label));
-                    let on = *icon == Icon::Grid && self.visible.grid;
+                    let on = (*icon == Icon::Grid && self.visible.grid) || (*icon == Icon::ThreeD && self.three_d);
                     if on {
                         ui.painter().rect_filled(br, 3.0, t.toggle_on.gamma_multiply(0.35));
                     } else if resp.hovered() {
@@ -246,6 +256,7 @@ impl BoardApp {
                 Some("Export") => self.export(),
                 Some("Zoom Extents") => self.zoom_extents(),
                 Some("Grid") => self.visible.grid = !self.visible.grid,
+                Some("3D") => self.three_d = !self.three_d,
                 _ => {}
             }
         });
@@ -597,6 +608,28 @@ impl BoardApp {
         let t = Tokens::get();
         let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
         let rect = response.rect;
+        if self.three_d {
+            painter.rect_filled(rect, 0.0, t.canvas);
+            if response.dragged() {
+                let d = response.drag_delta();
+                self.view3d.yaw += d.x * 0.01;
+                self.view3d.pitch = (self.view3d.pitch - d.y * 0.01).clamp(0.05, 1.5);
+            }
+            self.cursor_mm = None;
+            match &self.ws.board {
+                Some(board) => view3d::paint(&painter, rect, board, &self.view3d),
+                None => {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Place a design to see it in 3D",
+                        egui::FontId::proportional(15.0),
+                        t.text_faint,
+                    );
+                }
+            }
+            return;
+        }
         let outline = Rect::from_points(Point::ORIGIN, Point::new(Nm::from_mm_f64(self.width_mm), Nm::from_mm_f64(self.height_mm)));
         if self.center.is_none() {
             let c = outline.center();

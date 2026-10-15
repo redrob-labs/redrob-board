@@ -18,6 +18,7 @@ pub enum Icon {
     Eye,
     EyeOff,
     Grid,
+    ThreeD,
 }
 
 struct Pen<'a> {
@@ -143,6 +144,20 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
                 pen.l(3.0, v, 21.0, v, b);
             }
             pen.dot(9.0, 9.0);
+        }
+        ThreeD => {
+            // An isometric slab with a part on it.
+            pen.poly(&[(3.0, 14.0), (12.0, 19.0), (21.0, 14.0), (12.0, 9.0)], true, b);
+            pen.l(3.0, 14.0, 3.0, 16.5, b);
+            pen.l(12.0, 19.0, 12.0, 21.5, b);
+            pen.l(21.0, 14.0, 21.0, 16.5, b);
+            pen.l(3.0, 16.5, 12.0, 21.5, b);
+            pen.l(21.0, 16.5, 12.0, 21.5, b);
+            pen.poly(&[(9.0, 11.0), (12.0, 12.7), (15.0, 11.0), (12.0, 9.3)], true, a);
+            pen.l(9.0, 11.0, 9.0, 7.0, a);
+            pen.l(12.0, 12.7, 12.0, 8.7, a);
+            pen.l(15.0, 11.0, 15.0, 7.0, a);
+            pen.poly(&[(9.0, 7.0), (12.0, 8.7), (15.0, 7.0), (12.0, 5.3)], true, a);
         }
     }
 }

@@ -93,3 +93,16 @@ fn a_chat_line_becomes_a_fabrication_zip() {
     std::fs::remove_file(&zip).unwrap();
     assert_eq!(server.join().unwrap().len(), 5);
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs a software Vulkan adapter")]
+fn three_d_preview_snapshot() {
+    let mut h = harness();
+    h.run();
+    h.get_by_label("Route").click();
+    h.run();
+    h.get_by_label("3D").click();
+    h.run();
+    assert!(h.state().three_d);
+    h.snapshot("sensor_node_3d");
+}
