@@ -2831,6 +2831,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "redrob-board-web"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "log",
+ "redrob-board",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "redrob-engine-client"
 version = "0.1.0"
 source = "git+https://github.com/redrob-labs/redrob-code?tag=v0.6.4#bcb8af0dc6f3b97c95208259da4c6a993e4935d9"

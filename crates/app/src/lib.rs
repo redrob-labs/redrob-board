@@ -83,6 +83,7 @@ pub enum ChatLine {
 pub struct Chat {
     pub input: String,
     pub lines: Vec<ChatLine>,
+    #[cfg(feature = "agent")]
     pub agent: Option<board_chat::Agent>,
     /// Why there is no agent, when the engine could not be reached.
     pub unavailable: Option<String>,
@@ -120,6 +121,7 @@ impl BoardApp {
     }
 
     /// Talk to an engine at `base` (any OpenAI-compatible server) instead of the shared daemon.
+    #[cfg(feature = "agent")]
     pub fn with_engine(mut self, client: board_chat::ChatClient) -> Self {
         self.chat.tried = true;
         self.chat.agent = Some(board_chat::Agent::spawn(client));
@@ -493,6 +495,19 @@ impl BoardApp {
     // ---- agent --------------------------------------------------------------------------------
 
     /// Connect to the engine on first use; afterwards the palette shows either the chat or why not.
+    #[cfg(not(feature = "agent"))]
+    fn connect_agent(&mut self) {
+        if !self.chat.tried {
+            self.chat.tried = true;
+            self.chat.unavailable = Some("The agent needs the desktop app: the browser build has no engine connection.".into());
+        }
+    }
+
+    #[cfg(not(feature = "agent"))]
+    fn pump_agent(&mut self, _ctx: &egui::Context) {}
+
+    /// Connect to the engine on first use; afterwards the palette shows either the chat or why not.
+    #[cfg(feature = "agent")]
     fn connect_agent(&mut self) {
         if self.chat.tried {
             return;
@@ -509,6 +524,7 @@ impl BoardApp {
     }
 
     /// Drain the agent's events: run its tool calls on the workspace, show its text.
+    #[cfg(feature = "agent")]
     fn pump_agent(&mut self, ctx: &egui::Context) {
         let Some(agent) = &mut self.chat.agent else { return };
         let events = agent.poll();
@@ -549,7 +565,14 @@ impl BoardApp {
             ui.painter().hline(ui.max_rect().x_range(), ui.max_rect().top(), Stroke::new(1.0, t.border));
             Self::palette_header(ui, "AGENT");
             self.connect_agent();
+            #[cfg(feature = "agent")]
             let busy = self.chat.agent.as_ref().is_some_and(|a| a.busy);
+            #[cfg(not(feature = "agent"))]
+            let busy = false;
+            #[cfg(feature = "agent")]
+            let have_agent = self.chat.agent.is_some();
+            #[cfg(not(feature = "agent"))]
+            let have_agent = false;
             let input_h = 28.0;
             let transcript_h = (ui.available_height() - input_h - 8.0).max(0.0);
             egui::ScrollArea::vertical().id_salt("agent").max_height(transcript_h).stick_to_bottom(true).show(ui, |ui| {
@@ -584,7 +607,7 @@ impl BoardApp {
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                let enabled = self.chat.agent.is_some() && !busy;
+                let enabled = have_agent && !busy;
                 let edit = egui::TextEdit::singleline(&mut self.chat.input).hint_text("Ask the agent").desired_width(ui.available_width() - 56.0);
                 let resp = ui.add_enabled(enabled, edit);
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, enabled, "Ask the agent"));
@@ -593,6 +616,7 @@ impl BoardApp {
                 if (submit || send) && !self.chat.input.trim().is_empty() {
                     let text = std::mem::take(&mut self.chat.input);
                     self.chat.lines.push(ChatLine::User(text.clone()));
+                    #[cfg(feature = "agent")]
                     if let Some(agent) = &mut self.chat.agent {
                         agent.prompt(&text);
                     }

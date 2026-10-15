@@ -254,9 +254,45 @@ jobs:
           path: dist/release/*
           if-no-files-found: error
 
+  web:
+    name: Web (wasm)
+    needs: version
+    runs-on: ubuntu-latest
+    # No `environment: release`: this job signs nothing, so it gets no release secrets.
+    env:
+      REDROB_BOARD_VERSION: ${{ needs.version.outputs.version }}
+      REDROB_BOARD_BUILD_DATE: ${{ needs.version.outputs.date }}
+      REDROB_BOARD_BUILD_SHA: ${{ needs.version.outputs.sha }}
+      TRUNK_VERSION: 0.21.14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-web
+      - name: Install trunk
+        run: |
+          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.cargo/bin" trunk
+          trunk --version
+      - name: Apply version override
+        if: inputs.version != ''
+        run: cargo xtask version set "$REDROB_BOARD_VERSION"
+      - name: Build and zip
+        run: packaging/web/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: dist/release/*
+          if-no-files-found: error
+
   release:
     name: Draft GitHub Release
-    needs: [version, macos, windows, linux]
+    needs: [version, macos, windows, linux, web]
     # Only a version tag publishes; a manual dispatch stops before this job.
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest

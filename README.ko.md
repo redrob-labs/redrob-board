@@ -59,7 +59,8 @@ catalog·write_schematic·place·route·drc·export_zip 등)를 선언합니다:
 Linux AppImage/deb/rpm/tar.gz(x86_64·aarch64)가 있습니다:
 [github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
 `vX.Y.Z` 태그가 `.github/workflows/release.yml`을 돌려 한 커밋에서 모든 잡을 빌드하고 드래프트 릴리즈를 만듭니다.
-패키징 스크립트는 `packaging/`에 있습니다.
+패키징 스크립트는 `packaging/`에 있습니다. 릴리즈에는 브라우저 빌드(`redrob-board-web-<버전>.zip`, 정적 WebAssembly 사이트,
+호스팅 안내는 `packaging/web/README.md`)도 들어갑니다: 엔진 없는 같은 창이라 AGENT 팔레트가 그 사실을 말합니다.
 
 ## 라이선스
 

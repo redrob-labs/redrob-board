@@ -18,10 +18,20 @@ board-designs = { workspace = true }
 board-drc = { workspace = true }
 board-place = { workspace = true }
 board-agent = { workspace = true }
-board-chat = { workspace = true }
+board-chat = { workspace = true, optional = true }
 serde_json = { workspace = true }
 egui = { workspace = true }
+
+[features]
+# The AGENT palette (engine connection over the network); off in the browser build.
+default = ["agent"]
+agent = ["board-chat"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+eframe = { workspace = true, features = ["default_fonts", "glow"] }
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
