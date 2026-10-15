@@ -10,6 +10,7 @@ description = "Bill of materials and pick-and-place CSV files for Redrob Board"
 [dependencies]
 board-layout = { workspace = true }
 board-netlist = { workspace = true }
+board-catalog = { workspace = true }
 
 [dev-dependencies]
 board-designs = { workspace = true }

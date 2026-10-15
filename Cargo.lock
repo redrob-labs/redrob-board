@@ -476,6 +476,7 @@ name = "board-agent"
 version = "0.1.0"
 dependencies = [
  "board-bom",
+ "board-catalog",
  "board-designs",
  "board-drc",
  "board-geom",
@@ -494,9 +495,20 @@ dependencies = [
 name = "board-bom"
 version = "0.1.0"
 dependencies = [
+ "board-catalog",
  "board-designs",
  "board-layout",
  "board-netlist",
+]
+
+[[package]]
+name = "board-catalog"
+version = "0.1.0"
+dependencies = [
+ "board-netlist",
+ "board-schematic",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

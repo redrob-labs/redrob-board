@@ -56,6 +56,24 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec { name: "list_examples", description: "Names of the built-in example designs.", parameters: no_args() },
         ToolSpec {
+            name: "catalog",
+            description: "The parts catalogue: every part the board can be built from, with id, role (mcu, i2c_sensor, ldo, header, button, resistor, capacitor), value, footprint, LCSC number and unit price.",
+            parameters: json!({"type": "object", "properties": {"role": {"type": "string", "enum": ["mcu", "i2c_sensor", "ldo", "header", "button", "resistor", "capacitor"], "description": "Only parts with this role"}}, "additionalProperties": false}),
+        },
+        ToolSpec {
+            name: "write_schematic",
+            description: "Write the netlist for a board from a specification: an MCU from the catalogue, I2C sensors, how it is powered and which extras it has. Replaces the current design (drops any board). Rails, decoupling, I2C pull-ups, the reset RC + button, the boot pull-up and the power/UART header follow from the rules.",
+            parameters: json!({"type": "object", "required": ["mcu"], "properties": {
+                "name": {"type": "string", "description": "A short name for the design, e.g. sensor-node"},
+                "mcu": {"type": "string", "description": "Catalogue id of an mcu part, e.g. esp32-c3-mini-1"},
+                "sensors": {"type": "array", "items": {"type": "string"}, "description": "Catalogue ids of i2c_sensor parts, one per sensor on the board"},
+                "power": {"type": "string", "enum": ["usb5v_ldo3v3", "external3v3"], "description": "5 V in with an on-board 3.3 V LDO (default), or regulated 3.3 V in"},
+                "uart_header": {"type": "boolean", "description": "1x4 header: power, GND, TX, RX (default true)"},
+                "reset_button": {"type": "boolean", "description": "Reset button with its RC on EN (default true)"},
+                "boot_pullup": {"type": "boolean", "description": "Pull-up on the boot strapping pin (default true)"}
+            }, "additionalProperties": false}),
+        },
+        ToolSpec {
             name: "load_example",
             description: "Open one of the built-in example designs as the current netlist (drops any board).",
             parameters: json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "description": "An example name from list_examples, e.g. sensor-node"}}, "additionalProperties": false}),
@@ -130,6 +148,24 @@ impl Workspace {
         Ok(out)
     }
 
+    pub fn write_schematic(&mut self, name: &str, spec: &board_catalog::Spec) -> Result<Value, String> {
+        let n = board_catalog::write_schematic(spec).map_err(|e| e.to_string())?;
+        self.design = if name.trim().is_empty() { "custom".to_string() } else { name.trim().to_string() };
+        let out = json!({
+            "design": self.design,
+            "parts": n.components.len(),
+            "nets": n.nets.len(),
+            "refdes": n.components.iter().map(|c| format!("{} {}", c.refdes, c.value)).collect::<Vec<_>>(),
+            "parts_cost_usd": (board_catalog::parts_cost_usd(&n) * 100.0).round() / 100.0,
+        });
+        self.netlist = Some(n);
+        self.board = None;
+        self.violations.clear();
+        self.drc_run = false;
+        self.route_complete = None;
+        Ok(out)
+    }
+
     pub fn place(&mut self, width_mm: f64, height_mm: f64, edge_parts: &[(String, Edge)], seed: u64) -> Result<Value, String> {
         if self.netlist.is_none() {
             let name = if self.design.is_empty() { "sensor-node".to_string() } else { self.design.clone() };
@@ -180,6 +216,24 @@ impl Workspace {
             "describe" => Ok(self.describe()),
             "list_examples" => Ok(json!({"examples": example_names()})),
             "load_example" => self.load_example(&str_arg("name")?),
+            "catalog" => {
+                let role: Option<board_catalog::Role> = match args.get("role") {
+                    Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| format!("catalog: bad role: {e}"))?),
+                    None => None,
+                };
+                let parts: Vec<Value> = board_catalog::parts()
+                    .into_iter()
+                    .filter(|p| role.is_none_or(|r| p.role == r))
+                    .map(|p| json!({"id": p.id, "role": p.role, "value": p.value, "manufacturer": p.manufacturer, "mpn": p.mpn, "footprint": p.footprint, "lcsc": p.lcsc, "unit_price_usd": p.price_usd}))
+                    .collect();
+                Ok(json!({"parts": parts, "prices_as_of": board_catalog::PRICES_AS_OF}))
+            }
+            "write_schematic" => {
+                let mut spec_args = args.clone();
+                let name = spec_args.as_object_mut().and_then(|o| o.remove("name")).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+                let spec: board_catalog::Spec = serde_json::from_value(spec_args).map_err(|e| format!("write_schematic: bad spec: {e}"))?;
+                self.write_schematic(&name, &spec)
+            }
             "place" => {
                 let edges = args
                     .get("edge_parts")
@@ -214,7 +268,7 @@ mod tests {
     #[test]
     fn specs_are_valid_openai_tools() {
         let specs = tool_specs();
-        assert_eq!(specs.len(), 7);
+        assert_eq!(specs.len(), 9);
         for s in &specs {
             let v = s.to_openai();
             assert_eq!(v["type"], "function");
@@ -249,6 +303,30 @@ mod tests {
                 .unwrap_err()
                 .contains("edge")
         );
+    }
+
+    #[test]
+    fn write_schematic_then_pipeline_from_a_spec() {
+        let mut w = Workspace::default();
+        let r = w.run("catalog", &json!({"role": "i2c_sensor"})).unwrap();
+        assert_eq!(r["parts"][0]["id"], "aht20");
+        assert!(w.run("catalog", &json!({"role": "wheel"})).unwrap_err().contains("bad role"));
+        let r = w.run("write_schematic", &json!({"name": "온습도 노드", "mcu": "esp32-c3-mini-1", "sensors": ["aht20"]})).unwrap();
+        assert_eq!(r["parts"], 14);
+        assert_eq!(r["nets"], 9);
+        assert!(r["parts_cost_usd"].as_f64().unwrap() > 3.0);
+        assert_eq!(w.design, "온습도 노드");
+        let r = w
+            .run(
+                "place",
+                &json!({"width_mm": 30, "height_mm": 25, "edge_parts": [{"refdes": "J1", "edge": "left"}, {"refdes": "SW1", "edge": "right"}]}),
+            )
+            .unwrap();
+        assert_eq!(r["placed"], 14);
+        assert_eq!(w.run("route", &json!({})).unwrap()["complete"], true);
+        let d = w.run("drc", &json!({})).unwrap();
+        assert_eq!(d["clean"], true, "{d}");
+        assert!(w.run("write_schematic", &json!({"mcu": "aht20"})).unwrap_err().contains("not a Mcu"));
     }
 
     #[test]

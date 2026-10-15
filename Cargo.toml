@@ -34,6 +34,7 @@ board-bom = { path = "crates/bom" }
 board-agent = { path = "crates/agent" }
 redrob-board = { path = "crates/app" }
 board-chat = { path = "crates/chat" }
+board-catalog = { path = "crates/catalog" }
 redrob-engine-client = { git = "https://github.com/redrob-labs/redrob-code", tag = "v0.6.4" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -35,11 +35,30 @@ pub fn bom(netlist: &Netlist) -> Vec<BomLine> {
         .collect()
 }
 
-/// `Comment,Designator,Footprint,Quantity` -- the columns a board house's BOM upload wants.
+/// `Comment,Designator,Footprint,Quantity,Manufacturer,MPN,LCSC Part #,Unit Price USD` -- the
+/// first four are the columns every board house's BOM upload wants; the rest come from the parts
+/// catalogue (JLCPCB maps `LCSC Part #` to its stock), empty when a part is not in the catalogue.
 pub fn bom_csv(netlist: &Netlist) -> String {
-    let mut s = String::from("Comment,Designator,Footprint,Quantity\n");
+    let mut s = String::from("Comment,Designator,Footprint,Quantity,Manufacturer,MPN,LCSC Part #,Unit Price USD\n");
     for line in bom(netlist) {
-        writeln!(s, "{},{},{},{}", csv(&line.value), csv(&line.designators.join(" ")), csv(&line.footprint), line.designators.len()).unwrap();
+        let part = board_catalog::parts().into_iter().find(|p| p.value == line.value && p.footprint == line.footprint);
+        let (mfr, mpn, lcsc, price) = match &part {
+            Some(p) => (p.manufacturer, p.mpn, p.lcsc.unwrap_or(""), format!("{:.3}", p.price_usd)),
+            None => ("", "", "", String::new()),
+        };
+        writeln!(
+            s,
+            "{},{},{},{},{},{},{},{}",
+            csv(&line.value),
+            csv(&line.designators.join(" ")),
+            csv(&line.footprint),
+            line.designators.len(),
+            csv(mfr),
+            csv(mpn),
+            csv(lcsc),
+            price
+        )
+        .unwrap();
     }
     s
 }
@@ -82,8 +101,10 @@ mod tests {
         let c100n = lines.iter().find(|l| l.value == "100n").unwrap();
         assert_eq!(c100n.designators, vec!["C3", "C4"]);
         let csv = bom_csv(&sensor_node());
-        assert!(csv.starts_with("Comment,Designator,Footprint,Quantity\n"));
-        assert!(csv.contains("10k,R1 R2,Resistor_SMD:R_0402_1005Metric,2\n"), "{csv}");
+        assert!(csv.starts_with("Comment,Designator,Footprint,Quantity,Manufacturer,MPN,LCSC Part #,Unit Price USD\n"));
+        assert!(csv.contains("10k,R1 R2,Resistor_SMD:R_0402_1005Metric,2,generic,RC0402FR-0710KL,C25744,0.002\n"), "{csv}");
+        // The pin header comes from the catalogue too; an unknown part would leave the columns empty.
+        assert!(csv.contains("Conn_01x04,J1,Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical,1,generic,"), "{csv}");
         assert_eq!(csv.lines().count(), 1 + lines.len());
     }
 
