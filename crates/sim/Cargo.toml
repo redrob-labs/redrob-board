@@ -1,0 +1,22 @@
+[package]
+name = "board-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Linear circuit simulation (DC operating point, AC small-signal) of a board netlist, with a SPICE deck export for the ngspice oracle"
+
+[dependencies]
+board-netlist = { workspace = true }
+board-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+board-designs = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "board-sim-fixtures"
+path = "src/main.rs"

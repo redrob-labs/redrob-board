@@ -105,6 +105,15 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec { name: "drc", description: "Run the design rule check on the board and return the verdict and violations.", parameters: no_args() },
         ToolSpec {
+            name: "simulate",
+            description: "Linear DC operating point of the current netlist (resistors, capacitors, supplies; an LDO is an ideal source on its output): every net's voltage, plus pass/fail for the rails you name. Optionally the AC magnitude of every net at given frequencies.",
+            parameters: json!({"type": "object", "properties": {
+                "sources": {"type": "array", "description": "Supplies to GND, default [{net:'5V', volts:5}]", "items": {"type": "object", "required": ["net", "volts"], "properties": {"net": {"type": "string"}, "volts": {"type": "number"}}, "additionalProperties": false}},
+                "rails": {"type": "array", "description": "Expectations, e.g. 3V3 at 3.3 within 1%", "items": {"type": "object", "required": ["net", "volts"], "properties": {"net": {"type": "string"}, "volts": {"type": "number"}, "tolerance": {"type": "number", "description": "Fraction, default 0.01"}}, "additionalProperties": false}},
+                "ac_hz": {"type": "array", "items": {"type": "number", "exclusiveMinimum": 0}, "description": "Frequencies for the AC magnitude of every net"}
+            }, "additionalProperties": false}),
+        },
+        ToolSpec {
             name: "export_zip",
             description: "Write every fabrication file (Gerbers, Excellon drill, BOM, pick-and-place) as one ZIP archive, the upload a board house takes.",
             parameters: json!({"type": "object", "required": ["path"], "properties": {"path": {"type": "string", "description": "Archive path, e.g. fab/sensor-node.zip"}}, "additionalProperties": false}),
@@ -255,6 +264,26 @@ impl Workspace {
         Ok(json!({"clean": self.violations.is_empty(), "counts": counts, "violations": shown, "total": self.violations.len()}))
     }
 
+    pub fn simulate(&mut self, sources: &[(String, f64)], rails: &[board_sim::RailCheck], ac_hz: &[f64]) -> Result<Value, String> {
+        if self.netlist.is_none() {
+            let name = if self.design.is_empty() { "sensor-node".to_string() } else { self.design.clone() };
+            self.load_example(&name)?;
+        }
+        let netlist = self.netlist.as_ref().ok_or("no netlist")?;
+        let circuit = board_sim::Circuit::from_netlist(netlist, sources);
+        let dc = circuit.dc().map_err(|e| e.to_string())?;
+        let checks: Vec<Value> =
+            board_sim::check_rails(&dc, rails).into_iter().map(|(net, ok, line)| json!({"net": net, "ok": ok, "detail": line})).collect();
+        let mut ac = serde_json::Map::new();
+        for f in ac_hz {
+            let mags: std::collections::BTreeMap<String, f64> =
+                circuit.ac(*f).map_err(|e| e.to_string())?.into_iter().map(|(n, (m, _))| (n, m)).collect();
+            ac.insert(format!("{f}"), json!(mags));
+        }
+        let all_ok = checks.iter().all(|c| c["ok"] == true);
+        Ok(json!({"dc_volts": dc, "rails": checks, "rails_ok": all_ok, "ac_magnitude": ac, "elements": circuit.elements.len()}))
+    }
+
     pub fn export_fab(&mut self, dir: &str) -> Result<Value, String> {
         let (Some(board), Some(netlist)) = (&self.board, &self.netlist) else { return Err("nothing to export: place first".into()) };
         let files = export_fab(board, netlist, Path::new(dir)).map_err(|e| e.to_string())?;
@@ -317,6 +346,36 @@ impl Workspace {
             "add_planes" => self.add_planes(&str_arg("in1")?, &str_arg("in2")?, args.get("clearance_mm").and_then(Value::as_f64).unwrap_or(0.2)),
             "route" => self.route(),
             "drc" => self.drc(),
+            "simulate" => {
+                let sources: Vec<(String, f64)> = match args.get("sources").and_then(Value::as_array) {
+                    Some(a) => a
+                        .iter()
+                        .map(|s| {
+                            Ok::<_, String>((
+                                s["net"].as_str().ok_or("sources[].net must be a string")?.to_string(),
+                                s["volts"].as_f64().ok_or("sources[].volts must be a number")?,
+                            ))
+                        })
+                        .collect::<Result<_, _>>()?,
+                    None => vec![("5V".into(), 5.0)],
+                };
+                let rails: Vec<board_sim::RailCheck> = match args.get("rails").and_then(Value::as_array) {
+                    Some(a) => a
+                        .iter()
+                        .map(|r| {
+                            Ok::<_, String>(board_sim::RailCheck {
+                                net: r["net"].as_str().ok_or("rails[].net must be a string")?.to_string(),
+                                volts: r["volts"].as_f64().ok_or("rails[].volts must be a number")?,
+                                tolerance: r.get("tolerance").and_then(Value::as_f64).unwrap_or(0.01),
+                            })
+                        })
+                        .collect::<Result<_, _>>()?,
+                    None => Vec::new(),
+                };
+                let ac: Vec<f64> =
+                    args.get("ac_hz").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+                self.simulate(&sources, &rails, &ac)
+            }
             "export_fab" => self.export_fab(&str_arg("dir")?),
             "export_zip" => self.export_zip(&str_arg("path")?),
             other => Err(format!("unknown tool `{other}`")),
@@ -331,7 +390,7 @@ mod tests {
     #[test]
     fn specs_are_valid_openai_tools() {
         let specs = tool_specs();
-        assert_eq!(specs.len(), 11);
+        assert_eq!(specs.len(), 12);
         for s in &specs {
             let v = s.to_openai();
             assert_eq!(v["type"], "function");
@@ -417,6 +476,20 @@ mod tests {
         let desc = w.run("describe", &json!({})).unwrap();
         assert_eq!(desc["copper_layers"], 4);
         assert!(desc["planes"][0]["fill_mm2"].as_f64().unwrap() > 300.0, "{desc}");
+    }
+
+    #[test]
+    fn simulate_reports_rails() {
+        let mut w = Workspace::default();
+        w.run("load_example", &json!({"name": "sensor-node"})).unwrap();
+        let r =
+            w.run("simulate", &json!({"rails": [{"net": "3V3", "volts": 3.3}, {"net": "EN", "volts": 3.3}, {"net": "SDA", "volts": 1.0}]})).unwrap();
+        assert_eq!(r["rails"][0]["ok"], true, "{r}");
+        assert_eq!(r["rails"][2]["ok"], false, "{r}");
+        assert_eq!(r["rails_ok"], false);
+        assert!((r["dc_volts"]["3V3"].as_f64().unwrap() - 3.3).abs() < 1e-6);
+        let r = w.run("simulate", &json!({"sources": [{"net": "5V", "volts": 5}], "ac_hz": [1000]})).unwrap();
+        assert!(r["ac_magnitude"]["1000"]["5V"].as_f64().is_some(), "{r}");
     }
 
     #[test]

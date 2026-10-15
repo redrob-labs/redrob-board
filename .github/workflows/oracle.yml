@@ -37,3 +37,24 @@ jobs:
           name: oracle-reports
           path: target/oracle
           if-no-files-found: ignore
+
+  sim:
+    name: Node voltages match ngspice
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ngspice (oracle only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ngspice
+          ngspice --version | head -3
+      - name: Write decks, run the oracle, compare
+        run: scripts/sim_oracle.sh target/sim-oracle
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-oracle-reports
+          path: target/sim-oracle
+          if-no-files-found: ignore

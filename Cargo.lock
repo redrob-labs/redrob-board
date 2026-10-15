@@ -486,6 +486,7 @@ dependencies = [
  "board-netlist",
  "board-place",
  "board-route",
+ "board-sim",
  "board-units",
  "serde",
  "serde_json",
@@ -658,6 +659,17 @@ name = "board-schematic"
 version = "0.1.0"
 dependencies = [
  "board-netlist",
+]
+
+[[package]]
+name = "board-sim"
+version = "0.1.0"
+dependencies = [
+ "board-catalog",
+ "board-designs",
+ "board-netlist",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

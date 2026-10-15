@@ -17,6 +17,7 @@ board-designs = { workspace = true }
 board-drc = { workspace = true }
 board-place = { workspace = true }
 board-route = { workspace = true }
+board-sim = { workspace = true }
 board-gerber = { workspace = true }
 board-bom = { workspace = true }
 board-catalog = { workspace = true }
