@@ -259,6 +259,21 @@ pub struct NetClass {
     pub via_drill: Nm,
 }
 
+/// Two nets routed as a pair: `n` follows `p` at `gap` (copper edge to copper edge).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffPair {
+    pub p: String,
+    pub n: String,
+    pub gap: Nm,
+}
+
+/// Nets whose routed lengths must agree within `tolerance`; the router meanders the short ones.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LengthMatch {
+    pub nets: Vec<String>,
+    pub tolerance: Nm,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Board {
     pub outline: Polygon,
@@ -268,6 +283,10 @@ pub struct Board {
     pub vias: Vec<Via>,
     #[serde(default)]
     pub netclasses: Vec<NetClass>,
+    #[serde(default)]
+    pub diff_pairs: Vec<DiffPair>,
+    #[serde(default)]
+    pub length_groups: Vec<LengthMatch>,
 }
 
 impl Board {
@@ -280,7 +299,14 @@ impl Board {
             tracks: Vec::new(),
             vias: Vec::new(),
             netclasses: Vec::new(),
+            diff_pairs: Vec::new(),
+            length_groups: Vec::new(),
         }
+    }
+
+    /// Total routed track length of a net (vias add nothing).
+    pub fn net_length(&self, net: &str) -> Nm {
+        self.tracks.iter().filter(|t| t.net == net).fold(Nm::ZERO, |acc, t| acc + t.segment.length())
     }
 
     /// The class a net belongs to, if any.

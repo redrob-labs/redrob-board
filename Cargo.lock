@@ -648,6 +648,7 @@ dependencies = [
  "board-layout",
  "board-netlist",
  "board-place",
+ "board-schematic",
  "board-units",
  "serde",
 ]

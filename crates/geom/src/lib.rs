@@ -130,6 +130,11 @@ impl Segment {
         self.a.squared_distance(self.b)
     }
 
+    /// Length rounded to the nearest nanometre.
+    pub fn length(&self) -> Nm {
+        Nm((self.squared_length() as f64).sqrt().round() as i64)
+    }
+
     /// Squared distance from `p` to the closest point of the segment.
     pub fn squared_distance_to_point(&self, p: Point) -> i128 {
         let ax = self.a.x.0 as i128;

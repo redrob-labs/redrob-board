@@ -17,7 +17,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 
 use board_geom::{Point, Rect, Segment};
-use board_layout::{Board, BoardPad, Layer, PadShape, Track, Via};
+use board_layout::{Board, BoardPad, Layer, LengthMatch, PadShape, Track, Via};
 use board_netlist::{Netlist, PinRef};
 use board_units::Nm;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,27 @@ pub struct RouteReport {
     pub failed: BTreeMap<String, usize>,
     pub tracks: usize,
     pub vias: usize,
+    pub pairs: Vec<PairReport>,
+    pub lengths: Vec<LengthReport>,
+}
+
+/// How a differential pair came out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PairReport {
+    pub p: String,
+    pub n: String,
+    pub len_p: Nm,
+    pub len_n: Nm,
+    /// Share of N's path cells that sit in the corridor beside P, per mille.
+    pub coupled_permille: u32,
+}
+
+/// How a length-matched group came out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LengthReport {
+    pub nets: Vec<(String, Nm)>,
+    pub tolerance: Nm,
+    pub matched: bool,
 }
 
 impl RouteReport {
@@ -173,7 +194,7 @@ struct NetWork {
 /// track width, clearance and via; the rest take `rules`. Returns what could not be finished.
 pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteReport {
     if board.outline.bbox().is_none() {
-        return RouteReport { failed: BTreeMap::new(), tracks: 0, vias: 0 };
+        return RouteReport { failed: BTreeMap::new(), tracks: 0, vias: 0, pairs: Vec::new(), lengths: Vec::new() };
     }
     // Class 0 is the default; class k >= 1 is board.netclasses[k - 1].
     let classes: Vec<RouteRules> = std::iter::once(*rules)
@@ -205,8 +226,23 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
         b.map_or(0, |b| (b.width() + b.height()).0)
     });
 
+    // A pair's N follows its P directly, so P's path exists when N is routed.
+    let net_idx = |name: &str| netlist.nets.iter().position(|n| n.name == name);
+    let mut pair_of_n: BTreeMap<usize, (usize, Nm)> = BTreeMap::new(); // N index -> (P index, gap)
+    for pair in &board.diff_pairs {
+        if let (Some(pi), Some(ni)) = (net_idx(&pair.p), net_idx(&pair.n)) {
+            pair_of_n.insert(ni, (pi, pair.gap));
+            if let (Some(a), Some(b)) = (order.iter().position(|&i| i == pi), order.iter().position(|&i| i == ni)) {
+                order.remove(b);
+                let a = if b < a { a - 1 } else { a };
+                order.insert(a + 1, ni);
+            }
+        }
+    }
+
     let mut failed: BTreeMap<String, usize> = BTreeMap::new();
-    let mut new_tracks = Vec::new();
+    let mut coupled: BTreeMap<usize, (usize, usize)> = BTreeMap::new(); // N index -> (cells in corridor, cells)
+    let mut new_tracks: Vec<Track> = Vec::new();
     let mut new_vias = Vec::new();
     let before_tracks = board.tracks.len();
     let before_vias = board.vias.len();
@@ -229,20 +265,177 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
             break;
         }
         failed.clear();
+        coupled.clear();
         for ni in todo {
             let k = class_of[ni];
             let r = &classes[k];
             let via_extra_cells = (((r.via_diameter / 2 - r.track_width / 2).0.max(0) as f64) / r.grid.0 as f64).ceil() as isize;
-            let missing = route_net(&mut grids, &classes, k, &nets[ni], via_extra_cells, &mut new_tracks, &mut new_vias);
+            let corridor = pair_of_n.get(&ni).map(|&(pi, gap)| {
+                let p_name = &nets[pi].name;
+                let p_tracks: Vec<&Track> = new_tracks.iter().filter(|t| &t.net == p_name).collect();
+                corridor_cells(&grids[k], &p_tracks, gap + r.track_width)
+            });
+            let (missing, in_corridor) =
+                route_net(&mut grids, &classes, k, &nets[ni], via_extra_cells, corridor.as_ref(), &mut new_tracks, &mut new_vias);
             if missing > 0 {
                 failed.insert(nets[ni].name.clone(), missing);
+            }
+            if corridor.is_some() {
+                coupled.insert(ni, in_corridor);
             }
         }
     }
 
     board.tracks.extend(new_tracks);
     board.vias.extend(new_vias);
-    RouteReport { failed, tracks: board.tracks.len() - before_tracks, vias: board.vias.len() - before_vias }
+    let lengths = match_lengths(board, netlist, &mut grids, &classes, &class_of);
+    let pairs = board
+        .diff_pairs
+        .iter()
+        .filter_map(|pair| {
+            let ni = net_idx(&pair.n)?;
+            let (hit, total) = coupled.get(&ni).copied().unwrap_or((0, 0));
+            Some(PairReport {
+                p: pair.p.clone(),
+                n: pair.n.clone(),
+                len_p: board.net_length(&pair.p),
+                len_n: board.net_length(&pair.n),
+                coupled_permille: (hit * 1000).checked_div(total).unwrap_or(0) as u32,
+            })
+        })
+        .collect();
+    RouteReport { failed, tracks: board.tracks.len() - before_tracks, vias: board.vias.len() - before_vias, pairs, lengths }
+}
+
+/// Cells (per layer) at about `spacing` (centre to centre) from P's tracks on the same layer: where
+/// N's centre line should run. The band is one grid step wide so a diagonal P still has a corridor.
+fn corridor_cells(grid: &Grid, p_tracks: &[&Track], spacing: Nm) -> [Vec<bool>; 2] {
+    let n = grid.nx * grid.ny;
+    let mut out = [vec![false; n], vec![false; n]];
+    let lo = spacing - grid.pitch / 2;
+    let hi = spacing + grid.pitch / 2;
+    for t in p_tracks {
+        let Some(l) = layer_index(t.layer) else { continue };
+        let (x0, x1, y0, y1) = grid.cell_range(t.segment.bbox().inflate(hi));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let d2 = t.segment.squared_distance_to_point(grid.center(x, y));
+                if d2 >= lo.squared() && d2 <= hi.squared() {
+                    out[l][grid.index(x, y)] = true;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Bring every length group within tolerance by meandering its shorter nets: a straight run of a
+/// track becomes a trombone (out, along, back) that adds twice the depth. Only free cells of the
+/// net's own class grid are used, so the result still passes the checker.
+fn match_lengths(board: &mut Board, netlist: &Netlist, grids: &mut [Grid], classes: &[RouteRules], class_of: &[usize]) -> Vec<LengthReport> {
+    let mut reports = Vec::new();
+    // A differential pair is a length group of its own: skew within 5% of the longer leg.
+    let pair_groups: Vec<LengthMatch> = board
+        .diff_pairs
+        .iter()
+        .map(|p| {
+            let longer = board.net_length(&p.p).max(board.net_length(&p.n));
+            LengthMatch { nets: vec![p.p.clone(), p.n.clone()], tolerance: Nm(longer.0 / 20) }
+        })
+        .collect();
+    for (gi, group) in pair_groups.into_iter().chain(board.length_groups.clone()).enumerate() {
+        let target = group.nets.iter().map(|n| board.net_length(n)).max().unwrap_or(Nm::ZERO);
+        for net in &group.nets {
+            let Some(ni) = netlist.nets.iter().position(|n| &n.name == net) else { continue };
+            let k = class_of[ni];
+            let mut guard = 0;
+            while target - board.net_length(net) > group.tolerance && guard < 64 {
+                guard += 1;
+                let need = target - board.net_length(net);
+                if !add_meander(board, grids, classes, k, ni as u16, net, need) {
+                    break;
+                }
+            }
+        }
+        let nets: Vec<(String, Nm)> = group.nets.iter().map(|n| (n.clone(), board.net_length(n))).collect();
+        let (min, max) = nets.iter().fold((Nm(i64::MAX), Nm::ZERO), |(lo, hi), (_, l)| (lo.min(*l), hi.max(*l)));
+        // Pairs report through PairReport; only the explicit groups get a LengthReport.
+        if gi >= board.diff_pairs.len() {
+            reports.push(LengthReport { matched: nets.is_empty() || max - min <= group.tolerance, nets, tolerance: group.tolerance });
+        }
+    }
+    reports
+}
+
+/// One trombone on `net`: pick its longest axis-aligned track with room beside it and bend its
+/// middle third outward by up to `need / 2`. Returns false when no track has room.
+fn add_meander(board: &mut Board, grids: &mut [Grid], classes: &[RouteRules], k: usize, net: u16, name: &str, need: Nm) -> bool {
+    let pitch = grids[k].pitch;
+    let mut candidates: Vec<usize> = (0..board.tracks.len())
+        .filter(|&i| {
+            let t = &board.tracks[i];
+            t.net == name && (t.segment.a.x == t.segment.b.x || t.segment.a.y == t.segment.b.y) && t.segment.length() >= pitch * 6
+        })
+        .collect();
+    candidates.sort_by_key(|&i| std::cmp::Reverse(board.tracks[i].segment.length().0));
+    for ti in candidates {
+        let t = board.tracks[ti].clone();
+        let Some(l) = layer_index(t.layer) else { continue };
+        let horizontal = t.segment.a.y == t.segment.b.y;
+        let forward = if horizontal { t.segment.a.x < t.segment.b.x } else { t.segment.a.y < t.segment.b.y };
+        let (a, b) = if forward { (t.segment.a, t.segment.b) } else { (t.segment.b, t.segment.a) };
+        let len = t.segment.length();
+        // The bent part: the middle third, snapped to the grid.
+        let third = Nm(len.0 / 3 / pitch.0 * pitch.0);
+        if third < pitch * 2 {
+            continue;
+        }
+        let (m1, m2) = if horizontal {
+            (Point::new(a.x + third, a.y), Point::new(b.x - third, a.y))
+        } else {
+            (Point::new(a.x, a.y + third), Point::new(a.x, b.y - third))
+        };
+        // Depth: half the need, in grid steps, at least one; shrink until the cells are free.
+        let want = ((need.0 as f64 / 2.0 / pitch.0 as f64).ceil() as i64).max(1);
+        for side in [1i64, -1] {
+            let mut depth = want;
+            while depth >= 1 {
+                let off = pitch * depth * side;
+                let (o1, o2) = if horizontal {
+                    (Point::new(m1.x, m1.y + off), Point::new(m2.x, m2.y + off))
+                } else {
+                    (Point::new(m1.x + off, m1.y), Point::new(m2.x + off, m2.y))
+                };
+                let legs = [Segment::new(m1, o1), Segment::new(o1, o2), Segment::new(o2, m2)];
+                let reach_k = classes[k].track_width / 2;
+                let free = legs.iter().all(|seg| {
+                    let g = &grids[k];
+                    let (x0, x1, y0, y1) = g.cell_range(seg.bbox().inflate(reach_k));
+                    (y0..=y1).all(|y| {
+                        (x0..=x1).all(|x| {
+                            let c = g.center(x, y);
+                            // Cells the existing track already covers are not new copper.
+                            seg.squared_distance_to_point(c) > reach_k.squared()
+                                || t.segment.squared_distance_to_point(c) <= reach_k.squared()
+                                || g.passable(l, g.index(x, y), net)
+                        })
+                    })
+                });
+                if free {
+                    board.tracks.remove(ti);
+                    for seg in [Segment::new(a, m1), legs[0], legs[1], legs[2], Segment::new(m2, b)] {
+                        board.tracks.push(Track { net: name.to_string(), layer: t.layer, segment: seg, width: t.width });
+                        for (j, g) in grids.iter_mut().enumerate() {
+                            g.claim(l, Shape::Stroke { segment: seg, half_width: t.width / 2 }, reach(classes, j, k), net);
+                        }
+                    }
+                    return true;
+                }
+                depth -= 1;
+            }
+        }
+    }
+    false
 }
 
 /// How far a track centre of class `k` must stay from copper of class `m`: half of k's width plus
@@ -340,16 +533,19 @@ fn pad_cells(grid: &Grid, board: &Board, netlist: &Netlist) -> Vec<NetWork> {
     nets
 }
 
-/// Join all pads of one net (class `k`). Returns the number of connections that could not be made.
+/// Join all pads of one net (class `k`). Returns the number of connections that could not be made
+/// and, for a pair's N, how many path cells lay in the corridor beside P out of how many.
+#[allow(clippy::too_many_arguments)]
 fn route_net(
     grids: &mut [Grid],
     classes: &[RouteRules],
     k: usize,
     net: &NetWork,
     via_extra: isize,
+    corridor: Option<&[Vec<bool>; 2]>,
     tracks: &mut Vec<Track>,
     vias: &mut Vec<Via>,
-) -> usize {
+) -> (usize, (usize, usize)) {
     let n = grids[k].nx * grids[k].ny;
     // Which pad (index into net.pads) each cell belongs to, per layer; usize::MAX = none.
     let mut pad_of = [vec![usize::MAX; n], vec![usize::MAX; n]];
@@ -363,11 +559,16 @@ fn route_net(
     // Cells that are part of the connected component (sources).
     let mut sources: Vec<(usize, usize)> = net.pads[0].clone();
     let mut missing = 0;
+    let mut in_corridor = (0usize, 0usize);
     for _ in 1..net.pads.len() {
-        match search(&grids[k], net.index, &sources, &pad_of, &connected, &classes[k], via_extra) {
+        match search(&grids[k], net.index, &sources, &pad_of, &connected, &classes[k], via_extra, corridor) {
             Some((path, reached)) => {
                 connected[reached] = true;
                 sources.extend(net.pads[reached].iter().copied());
+                if let Some(c) = corridor {
+                    in_corridor.0 += path.iter().filter(|&&(l, cell)| c[l][cell]).count();
+                    in_corridor.1 += path.len();
+                }
                 commit(grids, classes, k, net, &path, tracks, vias);
                 sources.extend(path.iter().copied());
             }
@@ -380,7 +581,7 @@ fn route_net(
             }
         }
     }
-    missing
+    (missing, in_corridor)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -392,6 +593,7 @@ fn search(
     connected: &[bool],
     rules: &RouteRules,
     via_extra: isize,
+    corridor: Option<&[Vec<bool>; 2]>,
 ) -> Option<(Vec<(usize, usize)>, usize)> {
     let n = grid.nx * grid.ny;
     let mut dist = [vec![u32::MAX; n], vec![u32::MAX; n]];
@@ -441,6 +643,11 @@ fn search(
                     continue;
                 }
             }
+            // Beside a pair's P, straying out of the corridor costs triple.
+            let cost = match corridor {
+                Some(c) if !c[l][mc] => cost * 3,
+                _ => cost,
+            };
             let nd = d + cost;
             if nd < dist[l][mc] {
                 dist[l][mc] = nd;
@@ -546,6 +753,58 @@ mod tests {
 
     fn drc_rules(r: &RouteRules) -> Rules {
         Rules { clearance: r.clearance, min_track_width: r.track_width, edge_clearance: r.edge_clearance, ..Rules::default() }
+    }
+
+    /// Two 1x2 headers facing each other across a 20 x 10 board: pin i of one to pin i of the
+    /// other, two nets side by side. The raw material for the pair and length tests.
+    fn two_lanes(turn_right: bool) -> (Netlist, Board) {
+        let mut sch = board_schematic::Schematic::new();
+        let a = sch.part("J1", "Conn_01x02", "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical", &[("1", "1"), ("2", "2")]);
+        let b = sch.part("J2", "Conn_01x02", "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical", &[("1", "1"), ("2", "2")]);
+        sch.net("D_P", &[a.pin("1"), b.pin("1")]);
+        sch.net("D_N", &[a.pin("2"), b.pin("2")]);
+        let netlist = sch.build().unwrap();
+        let mut board = Board::two_layer(Rect::from_points(Point::ORIGIN, Point::mm(20, 10)));
+        // J1 stands vertically (pins along y). J2 does too, unless `turn_right` lays it along x,
+        // which makes D_N's run longer than D_P's.
+        board.place("J1", board_layout::footprints::pin_header_1xn(2), Point::mm(3, 3), 1, false);
+        board.place("J2", board_layout::footprints::pin_header_1xn(2), Point::mm(15, 3), if turn_right { 0 } else { 1 }, false);
+        (netlist, board)
+    }
+
+    #[test]
+    fn a_differential_pair_runs_coupled_and_equal() {
+        let (netlist, mut board) = two_lanes(false);
+        board.diff_pairs.push(board_layout::DiffPair { p: "D_P".into(), n: "D_N".into(), gap: Nm::um(200) });
+        let rules = RouteRules::default();
+        let report = route(&mut board, &netlist, &rules);
+        assert!(report.is_complete(), "{report:?}");
+        let pair = &report.pairs[0];
+        let (lp, ln) = (pair.len_p.0 as f64, pair.len_n.0 as f64);
+        assert!((lp - ln).abs() / lp.max(ln) <= 0.05, "{pair:?}");
+        assert!(pair.coupled_permille >= 700, "{pair:?}");
+        assert!(check(&board, &netlist, &drc_rules(&rules)).is_empty());
+    }
+
+    #[test]
+    fn length_groups_are_matched_with_meanders() {
+        // The right header lies along x, so D_N's run is longer than D_P's by a few millimetres.
+        let (netlist, mut board) = two_lanes(true);
+        board.length_groups.push(board_layout::LengthMatch { nets: vec!["D_P".into(), "D_N".into()], tolerance: Nm::um(100) });
+        let rules = RouteRules::default();
+        let before = {
+            let (n2, mut b2) = two_lanes(true);
+            route(&mut b2, &n2, &rules);
+            (b2.net_length("D_P"), b2.net_length("D_N"))
+        };
+        assert!((before.0 - before.1).0.abs() > Nm::mm(1).0, "the lanes differ before matching: {before:?}");
+        let report = route(&mut board, &netlist, &rules);
+        assert!(report.is_complete(), "{report:?}");
+        let lr = &report.lengths[0];
+        assert!(lr.matched, "{lr:?}");
+        let (a, b) = (board.net_length("D_P"), board.net_length("D_N"));
+        assert!((a - b).0.abs() <= Nm::um(100).0, "{a} vs {b}");
+        assert!(check(&board, &netlist, &drc_rules(&rules)).is_empty(), "{:?}", check(&board, &netlist, &drc_rules(&rules)));
     }
 
     #[test]

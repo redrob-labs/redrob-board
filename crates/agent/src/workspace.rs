@@ -194,7 +194,17 @@ impl Workspace {
         let r = route_design(board, netlist);
         self.route_complete = Some(r.is_complete());
         self.drc_run = false;
-        Ok(json!({"complete": r.is_complete(), "tracks": r.tracks, "vias": r.vias, "failed": r.failed}))
+        let pairs: Vec<Value> = r
+            .pairs
+            .iter()
+            .map(|p| json!({"p": p.p, "n": p.n, "len_p_mm": p.len_p.to_mm_f64(), "len_n_mm": p.len_n.to_mm_f64(), "coupled_permille": p.coupled_permille}))
+            .collect();
+        let lengths: Vec<Value> = r
+            .lengths
+            .iter()
+            .map(|g| json!({"nets": g.nets.iter().map(|(n, l)| json!({"net": n, "mm": l.to_mm_f64()})).collect::<Vec<_>>(), "tolerance_mm": g.tolerance.to_mm_f64(), "matched": g.matched}))
+            .collect();
+        Ok(json!({"complete": r.is_complete(), "tracks": r.tracks, "vias": r.vias, "failed": r.failed, "pairs": pairs, "length_groups": lengths}))
     }
 
     pub fn drc(&mut self) -> Result<Value, String> {
