@@ -1,12 +1,12 @@
-# Release pipeline: a `vX.Y.Z` tag builds installers for macOS, Windows and Linux and creates or
-# updates the draft GitHub Release "Redrob Board vX.Y.Z". Adapted from redrob-launcher.
+# Release pipeline: a `vX.Y.Z` tag builds installers for macOS, Windows and Linux and the browser
+# build, then publishes the GitHub Release "Redrob Board vX.Y.Z". Adapted from redrob-launcher.
 #
 # The tag must equal the Cargo.toml version; the version job fails otherwise. The jobs that sign
-# (macOS, Windows) and the one that drafts the GitHub Release run in the `release` environment.
+# (macOS, Windows) and the one that publishes the GitHub Release run in the `release` environment.
 # Signing secrets are the redrob-labs organization's (Apple Developer ID certificate + App Store
 # Connect API key for notarization; Azure Artifact Signing account IDs, reached over OpenID Connect,
 # for Windows). Every secret is optional: missing ones produce unsigned artifacts and a warning,
-# never a failed build. A manual dispatch is a dry run: it builds every job and drafts nothing.
+# never a failed build. A manual dispatch is a dry run: it builds every job and publishes nothing.
 #
 # Every job checks out the one commit the version job resolved, so a push that lands mid-run
 # cannot split the binaries from the tag.
@@ -291,7 +291,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Draft GitHub Release
+    name: Publish GitHub Release
     needs: [version, macos, windows, linux, web]
     # Only a version tag publishes; a manual dispatch stops before this job.
     if: github.ref_type == 'tag'
@@ -315,30 +315,32 @@ jobs:
         working-directory: artifacts
         run: |
           sha256sum -- * | tee SHA256SUMS.txt
-      - name: Create or update the draft release
+      - name: Publish the release
         working-directory: artifacts
         run: |
           tag="v$VERSION"
           title="Redrob Board v$VERSION"
-          pre=()
-          if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
+          # A stable version becomes "latest"; a prerelease never does.
+          flags=(--latest)
+          if [ "$PRERELEASE" = true ]; then flags=(--prerelease --latest=false); fi
           if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$draft" != "true" ]; then
               echo "::error::Release $tag is already published. Bump the version (cargo xtask version set) and tag again."
               exit 1
             fi
-            echo "Updating draft $tag: replacing its assets"
+            # A draft left by an earlier run (or made by hand): replace its assets and publish it.
+            echo "Publishing existing draft $tag with fresh assets"
             gh release view "$tag" --json assets --jq '.assets[].name' | while read -r asset; do
               gh release delete-asset "$tag" "$asset" --yes
             done
-            gh release edit "$tag" --draft --title "$title" --target "$SHA" --prerelease="$PRERELEASE"
             gh release upload "$tag" --clobber -- *
+            gh release edit "$tag" --draft=false --title "$title" --target "$SHA" "${flags[@]}"
           else
-            echo "Creating draft $tag"
-            gh release create "$tag" --draft --title "$title" --target "$SHA" --generate-notes "${pre[@]}" -- *
+            echo "Publishing $tag"
+            gh release create "$tag" --title "$title" --target "$SHA" --generate-notes "${flags[@]}" -- *
           fi
           {
-            echo "Draft release **$title** at \`${SHA::9}\`:"
+            echo "Published **$title** at \`${SHA::9}\`:"
             echo
             sed 's/^/    /' SHA256SUMS.txt
           } >>"$GITHUB_STEP_SUMMARY"

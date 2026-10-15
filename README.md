@@ -86,7 +86,7 @@ Releases carry a signed and notarized macOS disk image (universal), signed Windo
 and portable zips (x64, arm64) and Linux AppImage/deb/rpm/tar.gz (x86_64, aarch64):
 [github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
 A `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds every job from one commit and
-drafts the release; the packaging scripts live in `packaging/`. The release also carries a
+publishes the release; the packaging scripts live in `packaging/`. The release also carries a
 browser build (`redrob-board-web-<version>.zip`, a static WebAssembly site; `packaging/web/README.md`
 has the hosting notes): the same window without the engine, so the AGENT palette says so.
 
