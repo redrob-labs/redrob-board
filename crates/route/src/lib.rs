@@ -13,6 +13,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod zone;
+
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 
@@ -86,7 +88,6 @@ impl RouteReport {
 
 const FREE: u16 = u16::MAX;
 const BLOCKED: u16 = u16::MAX - 1;
-const LAYERS: [Layer; 2] = [Layer::FrontCopper, Layer::BackCopper];
 
 struct Grid {
     origin: Point,
@@ -94,7 +95,11 @@ struct Grid {
     nx: usize,
     ny: usize,
     /// `owner[layer][cell]`: FREE, BLOCKED, or the net index allowed to run a track centre here.
-    owner: [Vec<u16>; 2],
+    /// The board's copper layers, outer to inner to outer, as `owner` indexes them.
+    layers: Vec<Layer>,
+    owner: Vec<Vec<u16>>,
+    /// Per layer: the net whose zone covers it (tracks of other nets stay off; vias may cross).
+    plane: Vec<Option<u16>>,
 }
 
 impl Grid {
@@ -178,8 +183,10 @@ fn pad_shape(p: &BoardPad) -> Shape {
     }
 }
 
-fn layer_index(l: Layer) -> Option<usize> {
-    LAYERS.iter().position(|x| *x == l)
+impl Grid {
+    fn layer_index(&self, l: Layer) -> Option<usize> {
+        self.layers.iter().position(|x| *x == l)
+    }
 }
 
 struct NetWork {
@@ -276,7 +283,7 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
                 corridor_cells(&grids[k], &p_tracks, gap + r.track_width)
             });
             let (missing, in_corridor) =
-                route_net(&mut grids, &classes, k, &nets[ni], via_extra_cells, corridor.as_ref(), &mut new_tracks, &mut new_vias);
+                route_net(&mut grids, &classes, k, &nets[ni], via_extra_cells, corridor.as_deref(), &mut new_tracks, &mut new_vias);
             if missing > 0 {
                 failed.insert(nets[ni].name.clone(), missing);
             }
@@ -289,6 +296,7 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
     board.tracks.extend(new_tracks);
     board.vias.extend(new_vias);
     let lengths = match_lengths(board, netlist, &mut grids, &classes, &class_of);
+    zone::fill_zones(board, netlist, rules.edge_clearance);
     let pairs = board
         .diff_pairs
         .iter()
@@ -309,13 +317,13 @@ pub fn route(board: &mut Board, netlist: &Netlist, rules: &RouteRules) -> RouteR
 
 /// Cells (per layer) at about `spacing` (centre to centre) from P's tracks on the same layer: where
 /// N's centre line should run. The band is one grid step wide so a diagonal P still has a corridor.
-fn corridor_cells(grid: &Grid, p_tracks: &[&Track], spacing: Nm) -> [Vec<bool>; 2] {
+fn corridor_cells(grid: &Grid, p_tracks: &[&Track], spacing: Nm) -> Vec<Vec<bool>> {
     let n = grid.nx * grid.ny;
-    let mut out = [vec![false; n], vec![false; n]];
+    let mut out = vec![vec![false; n]; grid.layers.len()];
     let lo = spacing - grid.pitch / 2;
     let hi = spacing + grid.pitch / 2;
     for t in p_tracks {
-        let Some(l) = layer_index(t.layer) else { continue };
+        let Some(l) = grid.layer_index(t.layer) else { continue };
         let (x0, x1, y0, y1) = grid.cell_range(t.segment.bbox().inflate(hi));
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -380,7 +388,7 @@ fn add_meander(board: &mut Board, grids: &mut [Grid], classes: &[RouteRules], k:
     candidates.sort_by_key(|&i| std::cmp::Reverse(board.tracks[i].segment.length().0));
     for ti in candidates {
         let t = board.tracks[ti].clone();
-        let Some(l) = layer_index(t.layer) else { continue };
+        let Some(l) = grids[k].layer_index(t.layer) else { continue };
         let horizontal = t.segment.a.y == t.segment.b.y;
         let forward = if horizontal { t.segment.a.x < t.segment.b.x } else { t.segment.a.y < t.segment.b.y };
         let (a, b) = if forward { (t.segment.a, t.segment.b) } else { (t.segment.b, t.segment.a) };
@@ -452,7 +460,10 @@ fn build_grid(board: &Board, netlist: &Netlist, classes: &[RouteRules], class_of
     let pitch = rules.grid;
     let nx = (bbox.width().0 / pitch.0) as usize + 1;
     let ny = (bbox.height().0 / pitch.0) as usize + 1;
-    let mut grid = Grid { origin: bbox.min, pitch, nx, ny, owner: [vec![FREE; nx * ny], vec![FREE; nx * ny]] };
+    let layers = board.copper_layers.clone();
+    let plane: Vec<Option<u16>> =
+        layers.iter().map(|l| zone::plane_net(board, *l).and_then(|n| netlist.nets.iter().position(|x| x.name == n).map(|i| i as u16))).collect();
+    let mut grid = Grid { origin: bbox.min, pitch, nx, ny, owner: vec![vec![FREE; nx * ny]; layers.len()], layers, plane };
     let half = rules.track_width / 2;
 
     // A track centre must keep edge_clearance + half width from every outline edge, and cells
@@ -464,8 +475,9 @@ fn build_grid(board: &Board, netlist: &Netlist, classes: &[RouteRules], class_of
             let ok = board.outline.contains(c) && board.outline.edges().all(|e| e.squared_distance_to_point(c) >= edge_reach.squared());
             if !ok {
                 let i = grid.index(x, y);
-                grid.owner[0][i] = BLOCKED;
-                grid.owner[1][i] = BLOCKED;
+                for layer in &mut grid.owner {
+                    layer[i] = BLOCKED;
+                }
             }
         }
     }
@@ -477,19 +489,23 @@ fn build_grid(board: &Board, netlist: &Netlist, classes: &[RouteRules], class_of
         } else {
             netlist.net_of(&PinRef::new(pad.refdes.clone(), pad.number.clone())).and_then(|n| net_index(&n.name)).unwrap_or(BLOCKED)
         };
-        let layers: Vec<usize> = if pad.layers.is_empty() { vec![0, 1] } else { pad.layers.iter().filter_map(|l| layer_index(*l)).collect() };
+        let layers: Vec<usize> = if pad.layers.is_empty() {
+            (0..grid.layers.len()).collect()
+        } else {
+            board.pad_copper_layers(&pad).iter().filter_map(|l| grid.layer_index(*l)).collect()
+        };
         for l in layers {
             grid.claim(l, pad_shape(&pad), class_reach(owner), owner);
         }
     }
     for t in &board.tracks {
-        if let (Some(l), Some(n)) = (layer_index(t.layer), net_index(&t.net)) {
+        if let (Some(l), Some(n)) = (grid.layer_index(t.layer), net_index(&t.net)) {
             grid.claim(l, Shape::Stroke { segment: t.segment, half_width: t.width / 2 }, class_reach(n), n);
         }
     }
     for v in &board.vias {
         if let Some(n) = net_index(&v.net) {
-            for l in 0..2 {
+            for l in 0..grid.layers.len() {
                 grid.claim(l, Shape::Circle { center: v.at, radius: v.diameter / 2 }, class_reach(n), n);
             }
         }
@@ -508,7 +524,7 @@ fn pad_cells(grid: &Grid, board: &Board, netlist: &Netlist) -> Vec<NetWork> {
         let Some(net) = netlist.net_of(&PinRef::new(pad.refdes.clone(), pad.number.clone())) else { continue };
         let Some(ni) = netlist.nets.iter().position(|n| n.name == net.name) else { continue };
         let shape = pad_shape(&pad);
-        let layers: Vec<usize> = pad.layers.iter().filter_map(|l| layer_index(*l)).collect();
+        let layers: Vec<usize> = board.pad_copper_layers(&pad).iter().filter_map(|l| grid.layer_index(*l)).collect();
         let mut cells = Vec::new();
         for &l in &layers {
             let (x0, x1, y0, y1) = grid.cell_range(shape.bbox());
@@ -542,13 +558,13 @@ fn route_net(
     k: usize,
     net: &NetWork,
     via_extra: isize,
-    corridor: Option<&[Vec<bool>; 2]>,
+    corridor: Option<&[Vec<bool>]>,
     tracks: &mut Vec<Track>,
     vias: &mut Vec<Via>,
 ) -> (usize, (usize, usize)) {
     let n = grids[k].nx * grids[k].ny;
     // Which pad (index into net.pads) each cell belongs to, per layer; usize::MAX = none.
-    let mut pad_of = [vec![usize::MAX; n], vec![usize::MAX; n]];
+    let mut pad_of = vec![vec![usize::MAX; n]; grids[k].layers.len()];
     for (pi, cells) in net.pads.iter().enumerate() {
         for &(l, c) in cells {
             pad_of[l][c] = pi;
@@ -589,15 +605,16 @@ fn search(
     grid: &Grid,
     net: u16,
     sources: &[(usize, usize)],
-    pad_of: &[Vec<usize>; 2],
+    pad_of: &[Vec<usize>],
     connected: &[bool],
     rules: &RouteRules,
     via_extra: isize,
-    corridor: Option<&[Vec<bool>; 2]>,
+    corridor: Option<&[Vec<bool>]>,
 ) -> Option<(Vec<(usize, usize)>, usize)> {
     let n = grid.nx * grid.ny;
-    let mut dist = [vec![u32::MAX; n], vec![u32::MAX; n]];
-    let mut prev = [vec![u32::MAX; n], vec![u32::MAX; n]]; // encoded layer*n + cell
+    let nl = grid.layers.len();
+    let mut dist = vec![vec![u32::MAX; n]; nl];
+    let mut prev = vec![vec![u32::MAX; n]; nl]; // encoded layer*n + cell
     let mut heap = BinaryHeap::new();
     for &(l, c) in sources {
         if dist[l][c] != 0 {
@@ -632,7 +649,7 @@ fn search(
                 continue;
             }
             let mc = (my * nx + mx) as usize;
-            if !grid.passable(l, mc, net) {
+            if !grid.passable(l, mc, net) || grid.plane[l].is_some_and(|z| z != net) {
                 continue;
             }
             // Diagonal steps must not cut a blocked corner.
@@ -655,14 +672,15 @@ fn search(
                 heap.push(Reverse((nd, l as u8, mc as u32)));
             }
         }
-        // Layer change: needs room for the via on both layers.
-        let ol = 1 - l;
-        if via_ok(grid, net, x, y, via_extra) {
+        // Layer change: a through via needs room on every copper layer and reaches all of them.
+        if nl > 1 && via_ok(grid, net, x, y, via_extra) {
             let nd = d + rules.via_cost;
-            if nd < dist[ol][c] {
-                dist[ol][c] = nd;
-                prev[ol][c] = (l * n + c) as u32;
-                heap.push(Reverse((nd, ol as u8, c as u32)));
+            for ol in (0..nl).filter(|&ol| ol != l) {
+                if nd < dist[ol][c] {
+                    dist[ol][c] = nd;
+                    prev[ol][c] = (l * n + c) as u32;
+                    heap.push(Reverse((nd, ol as u8, c as u32)));
+                }
             }
         }
     }
@@ -677,7 +695,7 @@ fn via_ok(grid: &Grid, net: u16, x: isize, y: isize, extra: isize) -> bool {
                 return false;
             }
             let c = (my * grid.nx as isize + mx) as usize;
-            if !grid.passable(0, c, net) || !grid.passable(1, c, net) {
+            if (0..grid.layers.len()).any(|l| !grid.passable(l, c, net)) {
                 return false;
             }
         }
@@ -714,7 +732,8 @@ fn commit(
         if l != l2 {
             let at = pt(c);
             vias.push(Via { net: net.name.clone(), at, diameter: rules.via_diameter, drill: rules.via_drill });
-            claim_all(grids, &[0, 1], Shape::Circle { center: at, radius: rules.via_diameter / 2 });
+            let all: Vec<usize> = (0..grids[k].layers.len()).collect();
+            claim_all(grids, &all, Shape::Circle { center: at, radius: rules.via_diameter / 2 });
             i += 1;
             continue;
         }
@@ -737,7 +756,7 @@ fn commit(
             j += 1;
         }
         let seg = Segment::new(pt(c), pt(path[j].1));
-        tracks.push(Track { net: net.name.clone(), layer: LAYERS[l], segment: seg, width: rules.track_width });
+        tracks.push(Track { net: net.name.clone(), layer: grids[k].layers[l], segment: seg, width: rules.track_width });
         claim_all(grids, &[l], Shape::Stroke { segment: seg, half_width: half });
         i = j;
     }
@@ -746,7 +765,7 @@ fn commit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use board_designs::fixtures::{divider_netlist, divider_placed, sensor_node_hand, sensor_node_power_class};
+    use board_designs::fixtures::{divider_netlist, divider_placed, sensor_node_four_layer, sensor_node_hand, sensor_node_power_class};
     use board_designs::{library, sensor_node};
     use board_drc::{Rules, check};
     use board_place::{Constraints, Edge, place};
@@ -770,6 +789,30 @@ mod tests {
         board.place("J1", board_layout::footprints::pin_header_1xn(2), Point::mm(3, 3), 1, false);
         board.place("J2", board_layout::footprints::pin_header_1xn(2), Point::mm(15, 3), if turn_right { 0 } else { 1 }, false);
         (netlist, board)
+    }
+
+    /// Four layers with a GND and a 3V3 plane: signals route on the outer layers, the planes fill
+    /// around every via and pad of other nets, both planes reach their own pads, and nothing of
+    /// another net is drawn on a plane layer.
+    #[test]
+    fn four_layer_board_with_planes_routes_and_fills_clean() {
+        let netlist = sensor_node();
+        let mut board = sensor_node_four_layer();
+        let rules = RouteRules::default();
+        let report = route(&mut board, &netlist, &rules);
+        assert!(report.is_complete(), "{report:?}");
+        for t in &board.tracks {
+            if matches!(t.layer, Layer::InnerCopper(_)) {
+                let plane = zone::plane_net(&board, t.layer).unwrap();
+                assert_eq!(t.net, plane, "only the plane's own net may run tracks on {:?}", t.layer);
+            }
+        }
+        for z in &board.zones {
+            let area = zone::fill_area_mm2(z);
+            assert!(area > 400.0, "{} plane covers {area:.0} mm2 of 750", z.net);
+        }
+        let v = check(&board, &netlist, &drc_rules(&rules));
+        assert!(v.is_empty(), "{} violations, first: {:?}", v.len(), v.first());
     }
 
     #[test]

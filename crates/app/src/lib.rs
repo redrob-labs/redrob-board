@@ -36,6 +36,7 @@ pub struct Visible {
     pub courtyards: bool,
     pub copper_front: bool,
     pub copper_back: bool,
+    pub planes: bool,
     pub vias: bool,
     pub drc: bool,
     pub refdes: bool,
@@ -43,7 +44,7 @@ pub struct Visible {
 
 impl Default for Visible {
     fn default() -> Self {
-        Visible { grid: true, courtyards: true, copper_front: true, copper_back: true, vias: true, drc: true, refdes: true }
+        Visible { grid: true, courtyards: true, copper_front: true, copper_back: true, planes: true, vias: true, drc: true, refdes: true }
     }
 }
 
@@ -332,9 +333,10 @@ impl BoardApp {
         egui::Panel::left("rb_left").exact_size(PALETTE_W).frame(egui::Frame::NONE.fill(t.panel)).show(root, |ui| {
             ui.painter().vline(ui.max_rect().right(), ui.max_rect().y_range(), Stroke::new(1.0, t.border));
             Self::palette_header(ui, "LAYERS");
-            let rows: [(&str, Color32, &mut bool); 6] = [
+            let rows: [(&str, Color32, &mut bool); 7] = [
                 ("F.Cu", t.copper_front, &mut self.visible.copper_front),
                 ("B.Cu", t.copper_back, &mut self.visible.copper_back),
+                ("Inner planes", t.plane, &mut self.visible.planes),
                 ("Vias", t.via, &mut self.visible.vias),
                 ("Courtyards", t.courtyard, &mut self.visible.courtyards),
                 ("Reference designators", t.text, &mut self.visible.refdes),
@@ -691,6 +693,14 @@ impl BoardApp {
                     egui::FontId::proportional(mm(Nm::mm(1)).clamp(8.0, 14.0)),
                     t.text,
                 );
+            }
+        }
+        // Inner planes under everything: the fill of each zone, faint.
+        if self.visible.planes {
+            for z in &board.zones {
+                for r in &z.fill {
+                    painter.rect_filled(egui::Rect::from_two_pos(to_screen(r.min), to_screen(r.max)), 0.0, t.plane);
+                }
             }
         }
         // Back copper first so front draws on top.

@@ -267,6 +267,21 @@ pub struct DiffPair {
     pub gap: Nm,
 }
 
+/// A copper pour: the net fills `outline` on `layer` wherever it keeps `clearance` from other nets'
+/// copper, as rows of rectangles (`fill`) once filled. Islands that touch none of the net's pads or
+/// vias are dropped.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Zone {
+    pub net: String,
+    pub layer: Layer,
+    pub outline: Polygon,
+    pub clearance: Nm,
+    /// Narrowest copper the fill may leave; thinner slivers are removed.
+    pub min_width: Nm,
+    #[serde(default)]
+    pub fill: Vec<Rect>,
+}
+
 /// Nets whose routed lengths must agree within `tolerance`; the router meanders the short ones.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LengthMatch {
@@ -287,6 +302,8 @@ pub struct Board {
     pub diff_pairs: Vec<DiffPair>,
     #[serde(default)]
     pub length_groups: Vec<LengthMatch>,
+    #[serde(default)]
+    pub zones: Vec<Zone>,
 }
 
 impl Board {
@@ -301,7 +318,21 @@ impl Board {
             netclasses: Vec::new(),
             diff_pairs: Vec::new(),
             length_groups: Vec::new(),
+            zones: Vec::new(),
         }
+    }
+
+    /// A four-layer board: F.Cu, In1.Cu, In2.Cu, B.Cu.
+    pub fn four_layer(outline: Rect) -> Board {
+        let mut b = Board::two_layer(outline);
+        b.copper_layers = vec![Layer::FrontCopper, Layer::InnerCopper(1), Layer::InnerCopper(2), Layer::BackCopper];
+        b
+    }
+
+    /// Copper layers a pad reaches: a drilled pad goes through every copper layer of this board,
+    /// a surface pad stays on its own.
+    pub fn pad_copper_layers(&self, pad: &BoardPad) -> Vec<Layer> {
+        if pad.drill.is_some() && !pad.layers.is_empty() { self.copper_layers.clone() } else { pad.layers.clone() }
     }
 
     /// Total routed track length of a net (vias add nothing).

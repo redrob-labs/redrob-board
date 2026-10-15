@@ -23,7 +23,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ExportError {
-    #[error("inner copper layers are not exported yet")]
+    #[error("inner copper layers beyond In4.Cu are not exported")]
     InnerLayers,
 }
 
@@ -35,11 +35,25 @@ fn xy(p: Point) -> String {
     format!("{} {}", mm(p.x), mm(-p.y))
 }
 
+/// The inner copper layer entries of the layer table, numbered 1.. between F.Cu (0) and B.Cu (31).
+fn inner_layers(board: &Board) -> String {
+    let mut s = String::new();
+    for l in &board.copper_layers {
+        if let Layer::InnerCopper(n) = l {
+            writeln!(s, "    ({n} {} signal)", quote(layer_name(*l))).unwrap();
+        }
+    }
+    s
+}
+
 fn layer_name(l: Layer) -> &'static str {
     match l {
         Layer::FrontCopper => "F.Cu",
         Layer::BackCopper => "B.Cu",
-        Layer::InnerCopper(_) => "In1.Cu",
+        Layer::InnerCopper(1) => "In1.Cu",
+        Layer::InnerCopper(2) => "In2.Cu",
+        Layer::InnerCopper(3) => "In3.Cu",
+        Layer::InnerCopper(_) => "In4.Cu",
         Layer::FrontSilk => "F.SilkS",
         Layer::BackSilk => "B.SilkS",
         Layer::FrontMask => "F.Mask",
@@ -52,9 +66,20 @@ fn layer_name(l: Layer) -> &'static str {
     }
 }
 
-/// Write a `.kicad_pcb` document.
+/// Write a `.kicad_pcb` document. Zones carry their outline and rules but no fill: the oracle's
+/// DRC refills zones itself, and a fill written as rows of rectangles would be read as hundreds
+/// of islands. [`export_pcb_with_fills`] is the plotting variant.
 pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportError> {
-    if board.copper_layers.iter().any(|l| matches!(l, Layer::InnerCopper(_))) {
+    export_pcb_inner(board, netlist, false)
+}
+
+/// The same document with our zone fills as filled polygons, for plotting Gerbers to compare.
+pub fn export_pcb_with_fills(board: &Board, netlist: &Netlist) -> Result<String, ExportError> {
+    export_pcb_inner(board, netlist, true)
+}
+
+fn export_pcb_inner(board: &Board, netlist: &Netlist, fills: bool) -> Result<String, ExportError> {
+    if board.copper_layers.iter().any(|l| matches!(l, Layer::InnerCopper(n) if *n == 0 || *n > 4)) {
         return Err(ExportError::InnerLayers);
     }
 
@@ -64,9 +89,9 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
     let mut s = String::new();
     s.push_str("(kicad_pcb (version 20240108) (generator \"redrob-board\") (generator_version \"0.0.1\")\n");
     s.push_str("  (general (thickness 1.6) (legacy_teardrops no))\n  (paper \"A4\")\n");
-    s.push_str(
-        "  (layers\n    (0 \"F.Cu\" signal)\n    (31 \"B.Cu\" signal)\n    (34 \"B.Paste\" user)\n    (35 \"F.Paste\" user)\n    (36 \"B.SilkS\" user \"B.Silkscreen\")\n    (37 \"F.SilkS\" user \"F.Silkscreen\")\n    (38 \"B.Mask\" user)\n    (39 \"F.Mask\" user)\n    (44 \"Edge.Cuts\" user)\n    (46 \"B.CrtYd\" user \"B.Courtyard\")\n    (47 \"F.CrtYd\" user \"F.Courtyard\")\n    (48 \"B.Fab\" user)\n    (49 \"F.Fab\" user)\n  )\n",
-    );
+    s.push_str("  (layers\n    (0 \"F.Cu\" signal)\n");
+    s.push_str(&inner_layers(board));
+    s.push_str("    (31 \"B.Cu\" signal)\n    (34 \"B.Paste\" user)\n    (35 \"F.Paste\" user)\n    (36 \"B.SilkS\" user \"B.Silkscreen\")\n    (37 \"F.SilkS\" user \"F.Silkscreen\")\n    (38 \"B.Mask\" user)\n    (39 \"F.Mask\" user)\n    (44 \"Edge.Cuts\" user)\n    (46 \"B.CrtYd\" user \"B.Courtyard\")\n    (47 \"F.CrtYd\" user \"F.Courtyard\")\n    (48 \"B.Fab\" user)\n    (49 \"F.Fab\" user)\n  )\n");
     s.push_str("  (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no))\n");
     s.push_str("  (net 0 \"\")\n");
     for (i, n) in netlist.nets.iter().enumerate() {
@@ -145,6 +170,45 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
 
     for e in board.outline.edges() {
         writeln!(s, "  (gr_line (start {}) (end {}) (stroke (width 0.1) (type default)) (layer \"Edge.Cuts\"))", xy(e.a), xy(e.b)).unwrap();
+    }
+    // Zones carry our fill as their filled polygons (one per rectangle), solid pad connections and
+    // the same clearance, so the oracle plots and checks the copper we computed.
+    for z in &board.zones {
+        let net = netlist.nets.iter().position(|n| n.name == z.net).map_or(0, |i| i + 1);
+        write!(
+            s,
+            "  (zone (net {net}) (net_name {}) (layer {}) (hatch edge 0.5) (connect_pads yes (clearance {}))",
+            quote(&z.net),
+            quote(layer_name(z.layer)),
+            mm(z.clearance)
+        )
+        .unwrap();
+        write!(
+            s,
+            " (min_thickness {}) (filled_areas_thickness no) (fill yes (thermal_gap {}) (thermal_bridge_width {}))",
+            mm(z.min_width),
+            mm(z.clearance),
+            mm(z.min_width)
+        )
+        .unwrap();
+        s.push_str("\n    (polygon (pts");
+        for v in &z.outline.vertices {
+            write!(s, " (xy {})", xy(*v)).unwrap();
+        }
+        s.push_str("))\n");
+        for r in z.fill.iter().filter(|_| fills) {
+            writeln!(
+                s,
+                "    (filled_polygon (layer {}) (pts (xy {}) (xy {}) (xy {}) (xy {})))",
+                quote(layer_name(z.layer)),
+                xy(Point::new(r.min.x, r.min.y)),
+                xy(Point::new(r.max.x, r.min.y)),
+                xy(Point::new(r.max.x, r.max.y)),
+                xy(Point::new(r.min.x, r.max.y))
+            )
+            .unwrap();
+        }
+        s.push_str("  )\n");
     }
     for t in &board.tracks {
         writeln!(

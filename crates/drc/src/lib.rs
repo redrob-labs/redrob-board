@@ -178,7 +178,7 @@ fn copper_items(board: &Board, netlist: &Netlist) -> Vec<Item> {
             continue; // non-plated hole: no copper
         }
         let net = netlist.net_of(&PinRef::new(pad.refdes.clone(), pad.number.clone())).map(|n| n.name.clone());
-        items.push(Item { name: format!("{}.{}", pad.refdes, pad.number), net, layers: pad.layers.clone(), shape: pad_shape(&pad) });
+        items.push(Item { name: format!("{}.{}", pad.refdes, pad.number), net, layers: board.pad_copper_layers(&pad), shape: pad_shape(&pad) });
     }
     for (i, t) in board.tracks.iter().enumerate() {
         items.push(Item {
@@ -195,6 +195,11 @@ fn copper_items(board: &Board, netlist: &Netlist) -> Vec<Item> {
             layers: board.copper_layers.clone(),
             shape: Shape::Circle { center: v.at, radius: v.diameter / 2 },
         });
+    }
+    for (zi, z) in board.zones.iter().enumerate() {
+        for (ri, r) in z.fill.iter().enumerate() {
+            items.push(Item { name: format!("zone#{zi}.{ri}"), net: Some(z.net.clone()), layers: vec![z.layer], shape: Shape::Rect(*r) });
+        }
     }
     items
 }

@@ -68,9 +68,19 @@ pub fn drc_rules() -> Rules {
 
 /// The manufacturing files as `(name, text)`: Gerbers, drill, BOM, pick-and-place, plus the
 /// design's own JSON.
-pub fn fab_files(board: &Board, netlist: &Netlist) -> Vec<(&'static str, String)> {
-    vec![
-        ("board-F_Cu.gtl", export_layer(board, Layer::FrontCopper).write()),
+pub fn fab_files(board: &Board, netlist: &Netlist) -> Vec<(String, String)> {
+    let mut files: Vec<(String, String)> = vec![("board-F_Cu.gtl".into(), export_layer(board, Layer::FrontCopper).write())];
+    for l in &board.copper_layers {
+        if let Layer::InnerCopper(n) = l {
+            files.push((format!("board-In{n}_Cu.g{n}"), export_layer(board, *l).write()));
+        }
+    }
+    files.extend(fab_outer(board, netlist));
+    files
+}
+
+fn fab_outer(board: &Board, netlist: &Netlist) -> Vec<(String, String)> {
+    let v: Vec<(&str, String)> = vec![
         ("board-B_Cu.gbl", export_layer(board, Layer::BackCopper).write()),
         ("board-F_Mask.gts", export_layer(board, Layer::FrontMask).write()),
         ("board-B_Mask.gbs", export_layer(board, Layer::BackMask).write()),
@@ -84,7 +94,8 @@ pub fn fab_files(board: &Board, netlist: &Netlist) -> Vec<(&'static str, String)
         ("cpl.csv", cpl_csv(board)),
         ("board.json", board.to_json()),
         ("netlist.json", netlist.to_json()),
-    ]
+    ];
+    v.into_iter().map(|(n, t)| (n.to_string(), t)).collect()
 }
 
 /// Every manufacturing file into `dir`. Returns the file names written.
@@ -92,8 +103,8 @@ pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Resu
     std::fs::create_dir_all(dir)?;
     let mut names = Vec::new();
     for (name, text) in fab_files(board, netlist) {
-        std::fs::write(dir.join(name), text)?;
-        names.push(name.to_string());
+        std::fs::write(dir.join(&name), text)?;
+        names.push(name);
     }
     Ok(names)
 }
@@ -101,7 +112,7 @@ pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Resu
 /// The manufacturing files as one ZIP archive (the upload a board house takes). Gerbers and drill
 /// sit at the archive root, as the upload forms expect; the BOM, CPL and JSON beside them.
 pub fn fab_zip(board: &Board, netlist: &Netlist) -> Vec<u8> {
-    let files: Vec<(String, Vec<u8>)> = fab_files(board, netlist).into_iter().map(|(n, t)| (n.to_string(), t.into_bytes())).collect();
+    let files: Vec<(String, Vec<u8>)> = fab_files(board, netlist).into_iter().map(|(n, t)| (n, t.into_bytes())).collect();
     let mut out = Vec::new();
     zipfile::write_zip(&mut out, &files).expect("writing to a Vec cannot fail");
     out

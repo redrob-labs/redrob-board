@@ -2,7 +2,7 @@
 //! requires KiCad's violation counts to agree with ours.
 
 use board_geom::{Point, Rect, Segment};
-use board_layout::{Board, Layer, NetClass, Track, Via, footprints};
+use board_layout::{Board, Layer, NetClass, Track, Via, Zone, footprints};
 use board_netlist::Netlist;
 use board_schematic::Schematic;
 use board_units::Nm;
@@ -111,6 +111,34 @@ pub fn sensor_node_power_class() -> Board {
         clearance: Nm::um(200),
         via_diameter: Nm::um(800),
         via_drill: Nm::um(400),
+    });
+    b
+}
+
+/// The sensor node on four layers: the hand placement, In1.Cu a GND plane and In2.Cu a 3V3 plane
+/// over the whole board (0.2 mm clearance, 0.2 mm minimum width). Signals route on the outer
+/// layers and reach the planes through vias.
+pub fn sensor_node_four_layer() -> Board {
+    let hand = sensor_node_hand();
+    let outline = Rect::from_points(Point::ORIGIN, Point::mm(30, 25));
+    let mut b = Board::four_layer(outline);
+    b.placements = hand.placements;
+    let pour = board_geom::Polygon::rect(outline);
+    b.zones.push(Zone {
+        net: "GND".into(),
+        layer: Layer::InnerCopper(1),
+        outline: pour.clone(),
+        clearance: Nm::um(200),
+        min_width: Nm::um(200),
+        fill: Vec::new(),
+    });
+    b.zones.push(Zone {
+        net: "3V3".into(),
+        layer: Layer::InnerCopper(2),
+        outline: pour,
+        clearance: Nm::um(200),
+        min_width: Nm::um(200),
+        fill: Vec::new(),
     });
     b
 }

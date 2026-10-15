@@ -29,6 +29,8 @@ pub struct Tokens {
     /// Board layers, KiCad-like so the colours mean the same thing to a PCB reader.
     pub copper_front: Color32,
     pub copper_back: Color32,
+    /// Inner-layer copper pours, drawn faint under the outer layers.
+    pub plane: Color32,
     pub edge_cuts: Color32,
     pub courtyard: Color32,
     pub via: Color32,
@@ -61,6 +63,7 @@ impl Tokens {
         toggle_on: Color32::from_rgb(0x3d, 0x8b, 0xfd),
         copper_front: Color32::from_rgb(0xc8, 0x34, 0x34),
         copper_back: Color32::from_rgb(0x4d, 0x7f, 0xc4),
+        plane: Color32::from_rgba_premultiplied(0x3a, 0x5a, 0x3a, 0x60),
         edge_cuts: Color32::from_rgb(0xe6, 0xc8, 0x50),
         courtyard: Color32::from_rgb(0x6e, 0x78, 0x86),
         via: Color32::from_rgb(0xb4, 0xb4, 0xb4),

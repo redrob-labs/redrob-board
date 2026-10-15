@@ -32,7 +32,7 @@ pub enum Aperture {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {
     /// Select aperture `Dnn`.
     Select(u32),
@@ -42,6 +42,8 @@ pub enum Op {
     Draw(Point),
     /// `D03`: flash the current aperture at the point.
     Flash(Point),
+    /// `G36 ... G37`: a filled contour (region), vertices in order.
+    Region(Vec<Point>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -103,6 +105,16 @@ impl GerberFile {
                 Op::Move(p) => writeln!(s, "X{}Y{}D02*", p.x.0, p.y.0).unwrap(),
                 Op::Draw(p) => writeln!(s, "X{}Y{}D01*", p.x.0, p.y.0).unwrap(),
                 Op::Flash(p) => writeln!(s, "X{}Y{}D03*", p.x.0, p.y.0).unwrap(),
+                Op::Region(pts) => {
+                    s.push_str("G36*\n");
+                    for (i, p) in pts.iter().enumerate() {
+                        writeln!(s, "X{}Y{}D{:02}*", p.x.0, p.y.0, if i == 0 { 2 } else { 1 }).unwrap();
+                    }
+                    if let Some(p) = pts.first() {
+                        writeln!(s, "X{}Y{}D01*", p.x.0, p.y.0).unwrap();
+                    }
+                    s.push_str("G37*\n");
+                }
             }
         }
         s.push_str("M02*\n");
@@ -115,6 +127,8 @@ impl GerberFile {
         let mut saw_units = false;
         // Current point is implicit when X or Y is omitted (modal coordinates).
         let mut cur = Point::ORIGIN;
+        // Inside G36..G37 the D01/D02 codes trace a contour instead of drawing.
+        let mut region: Option<Vec<Point>> = None;
         for raw in text.split('*') {
             let cmd = raw.trim_matches(['\n', '\r', ' ', '%']);
             if cmd.is_empty() || cmd.starts_with("TF.") {
@@ -149,6 +163,16 @@ impl GerberFile {
                     return Err(GerberError::Unsupported(format!("aperture {def}")));
                 };
                 file.apertures.insert(code, aperture);
+            } else if cmd == "G36" {
+                region = Some(Vec::new());
+            } else if cmd == "G37" {
+                let mut pts = region.take().ok_or_else(|| GerberError::Malformed("G37 without G36".into()))?;
+                if pts.len() > 1 && pts.first() == pts.last() {
+                    pts.pop();
+                }
+                if pts.len() >= 3 {
+                    file.ops.push(Op::Region(pts));
+                }
             } else if cmd == "M02" {
                 break;
             } else if let Some(d) = cmd.strip_prefix('D') {
@@ -169,6 +193,13 @@ impl GerberFile {
                 }
                 if let Some(after_y) = rest.strip_prefix('Y') {
                     cur.y = Nm(after_y.parse().map_err(|_| GerberError::Malformed(cmd.into()))?);
+                }
+                if let Some(r) = &mut region {
+                    match d {
+                        "01" | "02" => r.push(cur),
+                        _ => return Err(GerberError::Malformed(cmd.into())),
+                    }
+                    continue;
                 }
                 file.ops.push(match d {
                     "01" => Op::Draw(cur),
@@ -221,8 +252,15 @@ pub fn export_layer(board: &Board, layer: Layer) -> GerberFile {
     match layer {
         Layer::EdgeCuts => outline(&mut g, &board.outline),
         l if l.is_copper() => {
+            // Zone fills first, so pads and tracks of other nets draw over nothing (the fill
+            // already keeps clear of them) and the file reads bottom-up like the board.
+            for z in board.zones.iter().filter(|z| z.layer == l) {
+                for r in &z.fill {
+                    g.flash(Aperture::Rect { width: r.width(), height: r.height() }, r.center());
+                }
+            }
             for pad in board.all_pads() {
-                if pad.layers.contains(&l) {
+                if board.pad_copper_layers(&pad).contains(&l) {
                     g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
                 }
             }
@@ -393,6 +431,12 @@ impl GerberFile {
                     }
                     pos = *p;
                 }
+                Op::Region(pts) => {
+                    for p in pts {
+                        let r = Rect::from_points(*p, *p);
+                        out = Some(out.map_or(r, |o| o.union(&r)));
+                    }
+                }
                 Op::Draw(p) => {
                     if let Some(a) = cur.and_then(|c| self.apertures.get(&c)) {
                         let (w, _) = aperture_size(*a);
@@ -429,6 +473,7 @@ impl GerberFile {
                     }
                     pos = *p;
                 }
+                Op::Region(pts) => paint(&mut r, Painted::Region(Polygon { vertices: pts.clone() })),
             }
         }
         r
@@ -445,6 +490,7 @@ fn aperture_size(a: Aperture) -> (Nm, Nm) {
 enum Painted {
     Flash(Aperture, Point),
     Stroke(Segment, Nm),
+    Region(Polygon),
 }
 
 fn paint(r: &mut Raster, shape: Painted) {
@@ -454,6 +500,10 @@ fn paint(r: &mut Raster, shape: Painted) {
             Rect::centered(*p, w, h)
         }
         Painted::Stroke(s, hw) => s.bbox().inflate(*hw),
+        Painted::Region(poly) => match poly.bbox() {
+            Some(b) => b,
+            None => return,
+        },
     };
     let lo = |v: Nm, o: Nm| ((v - o).0.max(0) as f64 / r.pitch.0 as f64).ceil() as i64;
     let hi = |v: Nm, o: Nm| ((v - o).0 as f64 / r.pitch.0 as f64).floor() as i64;
@@ -477,6 +527,7 @@ fn paint(r: &mut Raster, shape: Painted) {
                     }
                 },
                 Painted::Stroke(s, hw) => s.squared_distance_to_point(c) <= hw.squared(),
+                Painted::Region(poly) => poly.contains(c),
             };
             if inside {
                 r.bits[y as usize * r.width + x as usize] = true;
@@ -566,7 +617,14 @@ mod tests {
         assert_eq!(g.ops, vec![Op::Select(10), Op::Move(Point::mm(1, 2)), Op::Draw(Point::mm(3, 2)), Op::Draw(Point::mm(3, 0))]);
         assert_eq!(GerberFile::parse("%FSLAX24Y24*%%MOMM*%M02*"), Err(GerberError::Unsupported("coordinate format LAX24Y24".into())));
         assert_eq!(GerberFile::parse("%FSLAX46Y46*%%MOIN*%M02*"), Err(GerberError::Unsupported("unit IN".into())));
-        assert!(matches!(GerberFile::parse("%FSLAX46Y46*%%MOMM*%G36*M02*"), Err(GerberError::Unsupported(_))));
+        assert!(matches!(GerberFile::parse("%FSLAX46Y46*%%MOMM*%G02*M02*"), Err(GerberError::Unsupported(_))));
+        // A region: three vertices traced between G36 and G37, closed by repeating the first.
+        let g = GerberFile::parse("%FSLAX46Y46*%%MOMM*%G36*X0Y0D02*X1000000Y0D01*X1000000Y1000000D01*X0Y0D01*G37*M02*").unwrap();
+        assert_eq!(g.ops, vec![Op::Region(vec![Point::ORIGIN, Point::mm(1, 0), Point::mm(1, 1)])]);
+        let r = g.rasterise(Rect::from_points(Point::ORIGIN, Point::mm(1, 1)), Nm::um(100));
+        // The lower-right half of the square, give or take the diagonal.
+        assert!((50..=70).contains(&(r.count() * 100 / r.bits.len())), "{}", r.count());
+        assert_eq!(GerberFile::parse(&g.write()).unwrap().ops, g.ops);
     }
 
     #[test]

@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
-use board_designs::fixtures::{Fixture, divider_netlist, divider_placed, fixtures, sensor_node_hand, sensor_node_power_class};
+use board_designs::fixtures::{
+    Fixture, divider_netlist, divider_placed, fixtures, sensor_node_four_layer, sensor_node_hand, sensor_node_power_class,
+};
 use board_designs::sensor_node;
 use board_drc::{Rules, check, summary};
 use board_gerber::{export_drill, export_layer};
@@ -19,6 +21,7 @@ fn routed_fixtures() -> Vec<Fixture> {
         ("divider_autorouted", divider_netlist(), divider_placed()),
         ("sensor_node_routed", sensor_node(), sensor_node_hand()),
         ("sensor_node_power_class", sensor_node(), sensor_node_power_class()),
+        ("sensor_node_four_layer", sensor_node(), sensor_node_four_layer()),
     ] {
         let report = route(&mut board, &netlist, &RouteRules::default());
         assert!(report.is_complete(), "{name}: {report:?}");
@@ -53,6 +56,14 @@ fn main() -> ExitCode {
             .and_then(|_| write("drc.json", serde_json::to_string_pretty(&counts).expect("counts serialise")))
             .and_then(|_| fab_write("board-F_Cu.gtl", export_layer(&f.board, Layer::FrontCopper).write()))
             .and_then(|_| fab_write("board-B_Cu.gbl", export_layer(&f.board, Layer::BackCopper).write()))
+            .and_then(|_| {
+                for l in &f.board.copper_layers {
+                    if let Layer::InnerCopper(n) = l {
+                        fab_write(&format!("board-In{n}_Cu.g{n}"), export_layer(&f.board, *l).write())?;
+                    }
+                }
+                Ok(())
+            })
             .and_then(|_| fab_write("board-F_Mask.gts", export_layer(&f.board, Layer::FrontMask).write()))
             .and_then(|_| fab_write("board-B_Mask.gbs", export_layer(&f.board, Layer::BackMask).write()))
             .and_then(|_| fab_write("board-F_Paste.gtp", export_layer(&f.board, Layer::FrontPaste).write()))

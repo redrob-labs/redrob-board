@@ -9,9 +9,10 @@ use std::path::Path;
 
 use board_designs::library;
 use board_drc::{Violation, summary};
-use board_layout::Board;
+use board_layout::{Board, Layer, Zone};
 use board_netlist::Netlist;
 use board_place::Edge;
+use board_units::Nm;
 use serde_json::{Value, json};
 
 use crate::{drc_design, example_design, example_names, export_fab, export_zip, place_design, route_design};
@@ -89,8 +90,17 @@ pub fn tool_specs() -> Vec<ToolSpec> {
             }, "additionalProperties": false}),
         },
         ToolSpec {
+            name: "add_planes",
+            description: "Turn the placed board into a four-layer board with copper planes on the two inner layers (In1.Cu and In2.Cu), one net each, e.g. GND and 3V3. Call before route; the router then fills the planes around every via and pad of other nets. Drops any routing.",
+            parameters: json!({"type": "object", "required": ["in1", "in2"], "properties": {
+                "in1": {"type": "string", "description": "Net that fills In1.Cu, usually GND"},
+                "in2": {"type": "string", "description": "Net that fills In2.Cu, usually the main supply rail"},
+                "clearance_mm": {"type": "number", "minimum": 0.1, "maximum": 1.0, "description": "Plane to other copper, default 0.2"}
+            }, "additionalProperties": false}),
+        },
+        ToolSpec {
             name: "route",
-            description: "Route every net of the placed board on two copper layers. Places first if needed.",
+            description: "Route every net of the placed board on its copper layers (two, or four with planes). Places first if needed.",
             parameters: no_args(),
         },
         ToolSpec { name: "drc", description: "Run the design rule check on the board and return the verdict and violations.", parameters: no_args() },
@@ -128,6 +138,10 @@ impl Workspace {
         if let Some(b) = &self.board {
             v["tracks"] = json!(b.tracks.len());
             v["vias"] = json!(b.vias.len());
+            v["copper_layers"] = json!(b.copper_layers.len());
+            if !b.zones.is_empty() {
+                v["planes"] = json!(b.zones.iter().map(|z| json!({"net": z.net, "layer": format!("{:?}", z.layer), "fill_mm2": (board_route::zone::fill_area_mm2(z) * 10.0).round() / 10.0})).collect::<Vec<_>>());
+            }
             if let Some(bb) = b.outline.bbox() {
                 v["outline_mm"] = json!([bb.width().to_mm_f64(), bb.height().to_mm_f64()]);
             }
@@ -184,6 +198,31 @@ impl Workspace {
         self.drc_run = false;
         self.route_complete = None;
         Ok(out)
+    }
+
+    pub fn add_planes(&mut self, in1: &str, in2: &str, clearance_mm: f64) -> Result<Value, String> {
+        if self.board.is_none() {
+            self.place(30.0, 25.0, &[], 1)?;
+        }
+        let (Some(board), Some(netlist)) = (&mut self.board, &self.netlist) else { return Err("no board".into()) };
+        for n in [in1, in2] {
+            if netlist.net(n).is_none() {
+                return Err(format!("no net named `{n}` in this design"));
+            }
+        }
+        let outline = board.outline.clone();
+        board.copper_layers = vec![Layer::FrontCopper, Layer::InnerCopper(1), Layer::InnerCopper(2), Layer::BackCopper];
+        board.tracks.clear();
+        board.vias.clear();
+        let clearance = Nm::from_mm_f64(clearance_mm);
+        board.zones = [(in1, Layer::InnerCopper(1)), (in2, Layer::InnerCopper(2))]
+            .into_iter()
+            .map(|(net, layer)| Zone { net: net.to_string(), layer, outline: outline.clone(), clearance, min_width: Nm::um(200), fill: Vec::new() })
+            .collect();
+        self.route_complete = None;
+        self.drc_run = false;
+        self.violations.clear();
+        Ok(json!({"layers": 4, "planes": [{"layer": "In1.Cu", "net": in1}, {"layer": "In2.Cu", "net": in2}]}))
     }
 
     pub fn route(&mut self) -> Result<Value, String> {
@@ -275,6 +314,7 @@ impl Workspace {
                 let seed = args.get("seed").and_then(Value::as_u64).unwrap_or(1);
                 self.place(num_arg("width_mm")?, num_arg("height_mm")?, &edges, seed)
             }
+            "add_planes" => self.add_planes(&str_arg("in1")?, &str_arg("in2")?, args.get("clearance_mm").and_then(Value::as_f64).unwrap_or(0.2)),
             "route" => self.route(),
             "drc" => self.drc(),
             "export_fab" => self.export_fab(&str_arg("dir")?),
@@ -291,7 +331,7 @@ mod tests {
     #[test]
     fn specs_are_valid_openai_tools() {
         let specs = tool_specs();
-        assert_eq!(specs.len(), 10);
+        assert_eq!(specs.len(), 11);
         for s in &specs {
             let v = s.to_openai();
             assert_eq!(v["type"], "function");
@@ -357,6 +397,26 @@ mod tests {
         assert!(entries.iter().any(|(n, d)| n == "board-F_Cu.gtl" && d.ends_with(b"M02*\n")));
         assert!(entries.iter().any(|(n, _)| n == "bom.csv"));
         std::fs::remove_file(&zip).unwrap();
+    }
+
+    #[test]
+    fn planes_make_a_four_layer_board_that_routes_clean() {
+        let mut w = Workspace::default();
+        w.run("load_example", &json!({"name": "sensor-node"})).unwrap();
+        w.run(
+            "place",
+            &json!({"width_mm": 30, "height_mm": 25, "edge_parts": [{"refdes": "J1", "edge": "left"}, {"refdes": "SW1", "edge": "right"}]}),
+        )
+        .unwrap();
+        assert!(w.run("add_planes", &json!({"in1": "GND", "in2": "NOPE"})).unwrap_err().contains("NOPE"));
+        let r = w.run("add_planes", &json!({"in1": "GND", "in2": "3V3"})).unwrap();
+        assert_eq!(r["layers"], 4);
+        assert_eq!(w.run("route", &json!({})).unwrap()["complete"], true);
+        let d = w.run("drc", &json!({})).unwrap();
+        assert_eq!(d["clean"], true, "{d}");
+        let desc = w.run("describe", &json!({})).unwrap();
+        assert_eq!(desc["copper_layers"], 4);
+        assert!(desc["planes"][0]["fill_mm2"].as_f64().unwrap() > 300.0, "{desc}");
     }
 
     #[test]

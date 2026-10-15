@@ -4,7 +4,7 @@
 use std::process::ExitCode;
 
 use board_drc::Rules;
-use board_kicad::{export_pcb, export_project};
+use board_kicad::{export_pcb, export_pcb_with_fills, export_project};
 use board_layout::Board;
 use board_netlist::Netlist;
 
@@ -25,6 +25,9 @@ fn main() -> ExitCode {
         let out = std::path::Path::new(&args[2]);
         std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
         let pcb = export_pcb(&board, &netlist).map_err(|e| e.to_string())?;
+        let filled = export_pcb_with_fills(&board, &netlist).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(out.join("fills")).map_err(|e| e.to_string())?;
+        std::fs::write(out.join("fills/board.kicad_pcb"), filled).map_err(|e| e.to_string())?;
         std::fs::write(out.join("board.kicad_pcb"), pcb).map_err(|e| e.to_string())?;
         std::fs::write(out.join("board.kicad_pro"), export_project(&rules, &board)).map_err(|e| e.to_string())?;
         Ok(())
