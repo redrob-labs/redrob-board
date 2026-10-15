@@ -51,7 +51,7 @@ wire length than the hand placement it is measured against (gate: 20%). The rout
 divider and both sensor-node placements on two layers with zero DRC violations, and KiCad agrees
 the routed sensor node is clean. Our Gerbers (copper, mask, paste, edge cuts) and Excellon drill
 files are compared with KiCad's plots of the same boards by rasterising both at 10 um with our own
-reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come from `board-bom`.
+reader: 48 of 48 copper, mask, paste (with the grid of paste windows on the module ground plate), edge and drill files are pixel-identical, and the silkscreen (reference designators in our own stroke font) matches KiCad's loosely -- same place, same mirror, same ink within a factor of two. BOM and pick-and-place CSVs come from `board-bom`.
 `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
 runs the whole flow and exits 0 only when routing is complete and DRC is clean; `redrob-board`
 (egui) does the same from buttons, and a headless `egui_kittest` test drives those buttons and

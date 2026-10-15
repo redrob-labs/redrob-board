@@ -6,11 +6,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod silk;
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use board_geom::{Point, Polygon, Rect, Segment};
-use board_layout::{Board, Layer, PadShape};
+use board_layout::{Board, Layer, PadShape, Paste};
 use board_units::Nm;
 use thiserror::Error;
 
@@ -231,12 +233,38 @@ pub fn export_layer(board: &Board, layer: Layer) -> GerberFile {
                 g.flash(Aperture::Circle { diameter: v.diameter }, v.at);
             }
         }
-        Layer::FrontMask | Layer::BackMask | Layer::FrontPaste | Layer::BackPaste => {
-            let copper = if matches!(layer, Layer::FrontMask | Layer::FrontPaste) { Layer::FrontCopper } else { Layer::BackCopper };
-            let paste = matches!(layer, Layer::FrontPaste | Layer::BackPaste);
+        Layer::FrontMask | Layer::BackMask => {
+            let copper = if layer == Layer::FrontMask { Layer::FrontCopper } else { Layer::BackCopper };
             for pad in board.all_pads() {
-                if pad.layers.contains(&copper) && !(paste && pad.drill.is_some()) {
+                if pad.layers.contains(&copper) {
                     g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center);
+                }
+            }
+        }
+        Layer::FrontPaste | Layer::BackPaste => {
+            let copper = if layer == Layer::FrontPaste { Layer::FrontCopper } else { Layer::BackCopper };
+            for pad in board.all_pads() {
+                if !pad.layers.contains(&copper) {
+                    continue;
+                }
+                match pad.paste_kind {
+                    Paste::Full => g.flash(aperture_for(pad.shape, pad.quarter_turns), pad.center),
+                    Paste::Grid { .. } => {
+                        for (c, side) in &pad.paste {
+                            g.flash(Aperture::Rect { width: *side, height: *side }, *c);
+                        }
+                    }
+                    Paste::None => {}
+                }
+            }
+        }
+        Layer::FrontSilk | Layer::BackSilk => {
+            // Reference designators, 1 mm stroke text centred on the part, mirrored on the back.
+            let back = layer == Layer::BackSilk;
+            for p in board.placements.iter().filter(|p| p.flipped == back) {
+                let c = p.board_courtyard().center();
+                for stroke in silk::text_strokes(&p.refdes, c, Nm::mm(1), back) {
+                    g.polyline(Nm::um(150), &stroke, false);
                 }
             }
         }

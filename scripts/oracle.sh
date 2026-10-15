@@ -14,7 +14,7 @@ for board in "$OUT"/*.board.json; do
   "$BIN/board-kicad-export" "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"
   (cd "$OUT/$name" && kicad-cli pcb drc --format json --severity-all --units mm -o drc.json board.kicad_pcb >/dev/null)
   mkdir -p "$OUT/$name/fab"
-  kicad-cli pcb export gerbers --layers F.Cu,B.Cu,Edge.Cuts,F.Mask,B.Mask,F.Paste --no-x2 --no-netlist -o "$OUT/$name/fab/" "$OUT/$name/board.kicad_pcb" >/dev/null
+  kicad-cli pcb export gerbers --layers F.Cu,B.Cu,Edge.Cuts,F.Mask,B.Mask,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen --no-x2 --no-netlist -o "$OUT/$name/fab/" "$OUT/$name/board.kicad_pcb" >/dev/null
   kicad-cli pcb export drill --format excellon --excellon-units mm --excellon-zeros-format decimal -o "$OUT/$name/fab/" "$OUT/$name/board.kicad_pcb" >/dev/null
 done
 python3 scripts/oracle_compare.py "$OUT"

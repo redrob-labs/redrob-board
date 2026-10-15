@@ -16,7 +16,7 @@ use std::fmt::Write as _;
 
 use board_drc::Rules;
 use board_geom::Point;
-use board_layout::{Board, Layer, PadShape};
+use board_layout::{Board, Layer, PadShape, Paste};
 use board_netlist::{Netlist, PinRef};
 use board_units::Nm;
 use thiserror::Error;
@@ -78,10 +78,14 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
         let (cu, silk, paste, mask, yard_layer) =
             if p.flipped { ("B.Cu", "B.SilkS", "B.Paste", "B.Mask", "B.CrtYd") } else { ("F.Cu", "F.SilkS", "F.Paste", "F.Mask", "F.CrtYd") };
         writeln!(s, "  (footprint {} (layer {}) (at {} {})", quote(&p.footprint.id), quote(cu), xy(p.at), angle).unwrap();
+        // The reference sits at the courtyard centre, where our silkscreen draws it; angle 0 is
+        // absolute here (like a pad's), so both labels stay horizontal.
+        let label_at = p.footprint.courtyard.center();
         writeln!(
             s,
-            "    (property \"Reference\" {} (at 0 0 0) (layer {}) (effects (font (size 1 1) (thickness 0.15))))",
+            "    (property \"Reference\" {} (at {} 0) (layer {}) (effects (font (size 1 1) (thickness 0.15))))",
             quote(&p.refdes),
+            xy(label_at),
             quote(silk)
         )
         .unwrap();
@@ -99,6 +103,8 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
         for pad in &p.footprint.pads {
             let (w, h) = pad.shape.size();
             let (kind, layers) = match (pad.drill, pad.layers.is_empty()) {
+                // A pad with paste windows keeps copper and mask; its paste is the aperture pads below.
+                (None, _) if pad.paste != Paste::Full => ("smd", format!("{} {}", quote(cu), quote(mask))),
                 (None, _) => ("smd", format!("{} {} {}", quote(cu), quote(paste), quote(mask))),
                 (Some(_), true) => ("np_thru_hole", format!("{} {}", quote("*.Cu"), quote("*.Mask"))),
                 (Some(_), false) => ("thru_hole", format!("{} {}", quote("*.Cu"), quote("*.Mask"))),
@@ -126,6 +132,13 @@ pub fn export_pcb(board: &Board, netlist: &Netlist) -> Result<String, ExportErro
                 write!(s, " (net {} {})", net_index(&net.name), quote(&net.name)).unwrap();
             }
             s.push_str(")\n");
+            // Paste windows as aperture pads (no number, paste layer only): the same geometry our
+            // own paste Gerber carries, so the oracle's plot and ours stay comparable.
+            if let Paste::Grid { .. } = pad.paste {
+                for (c, side) in pad.paste_windows() {
+                    writeln!(s, "    (pad \"\" smd rect (at {} {angle}) (size {} {}) (layers {}))", xy(c), mm(side), mm(side), quote(paste)).unwrap();
+                }
+            }
         }
         s.push_str("  )\n");
     }

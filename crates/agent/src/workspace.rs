@@ -342,7 +342,7 @@ mod tests {
         assert!(w.run("write_schematic", &json!({"mcu": "aht20"})).unwrap_err().contains("not a Mcu"));
         let zip = std::env::temp_dir().join(format!("board-ws-{}.zip", std::process::id()));
         let r = w.run("export_zip", &json!({"path": zip.display().to_string()})).unwrap();
-        assert_eq!(r["files"], 12);
+        assert_eq!(r["files"], 14);
         let entries = crate::zipfile::read_zip(&std::fs::read(&zip).unwrap()).unwrap();
         assert!(entries.iter().any(|(n, d)| n == "board-F_Cu.gtl" && d.ends_with(b"M02*\n")));
         assert!(entries.iter().any(|(n, _)| n == "bom.csv"));

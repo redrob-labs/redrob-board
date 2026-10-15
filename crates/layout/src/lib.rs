@@ -64,6 +64,19 @@ impl PadShape {
     }
 }
 
+/// How solder paste covers a pad. Big pads (a module's ground plate) get a grid of windows so the
+/// paste volume suits reflow; the copper and mask stay whole.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Paste {
+    /// Paste over the whole pad (every ordinary SMD pad).
+    #[default]
+    Full,
+    /// An `n` x `n` grid of `cell`-sized squares, outer edges flush with the pad's edges.
+    Grid { n: u8, cell: Nm },
+    /// No paste (a test point, a thermal pad soldered by hand).
+    None,
+}
+
 /// A pad in footprint-local coordinates (origin at the footprint anchor, no rotation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pad {
@@ -74,21 +87,49 @@ pub struct Pad {
     pub layers: Vec<Layer>,
     /// Drill diameter; `None` for surface-mount.
     pub drill: Option<Nm>,
+    #[serde(default)]
+    pub paste: Paste,
 }
 
 impl Pad {
     pub fn smd(number: impl Into<String>, at: Point, shape: PadShape, layer: Layer) -> Pad {
-        Pad { number: number.into(), at, shape, layers: vec![layer], drill: None }
+        Pad { number: number.into(), at, shape, layers: vec![layer], drill: None, paste: Paste::Full }
     }
 
     pub fn through_hole(number: impl Into<String>, at: Point, shape: PadShape, drill: Nm) -> Pad {
-        Pad { number: number.into(), at, shape, layers: vec![Layer::FrontCopper, Layer::BackCopper], drill: Some(drill) }
+        Pad { number: number.into(), at, shape, layers: vec![Layer::FrontCopper, Layer::BackCopper], drill: Some(drill), paste: Paste::Full }
     }
 
     /// Bounding box in local coordinates.
     pub fn bbox(&self) -> Rect {
         let (w, h) = self.shape.size();
         Rect::centered(self.at, w, h)
+    }
+
+    /// Where paste goes, in footprint-local coordinates: `(centre, square side)` per window.
+    /// `Full` gives the pad itself (as its bbox size); `None` gives nothing.
+    pub fn paste_windows(&self) -> Vec<(Point, Nm)> {
+        match self.paste {
+            Paste::None => Vec::new(),
+            Paste::Full => {
+                let (w, h) = self.shape.size();
+                vec![(self.at, w.min(h))]
+            }
+            Paste::Grid { n, cell } => {
+                let (w, h) = self.shape.size();
+                let n = n.max(1) as i64;
+                let step = |extent: Nm| if n > 1 { (extent - cell) / (n - 1) } else { Nm::ZERO };
+                let (sx, sy) = (step(w), step(h));
+                let (x0, y0) = (self.at.x - (w - cell) / 2, self.at.y - (h - cell) / 2);
+                let mut out = Vec::new();
+                for i in 0..n {
+                    for j in 0..n {
+                        out.push((Point::new(x0 + sx * i, y0 + sy * j), cell));
+                    }
+                }
+                out
+            }
+        }
     }
 }
 
@@ -155,6 +196,12 @@ impl Placement {
                     bbox,
                     layers: p.layers.iter().map(|l| self.layer(*l)).collect(),
                     drill: p.drill,
+                    paste_kind: if p.drill.is_some() { Paste::None } else { p.paste },
+                    paste: if p.drill.is_some() {
+                        Vec::new()
+                    } else {
+                        p.paste_windows().into_iter().map(|(c, side)| (self.to_board(c), side)).collect()
+                    },
                 }
             })
             .collect()
@@ -178,6 +225,10 @@ pub struct BoardPad {
     pub bbox: Rect,
     pub layers: Vec<Layer>,
     pub drill: Option<Nm>,
+    /// How paste covers this pad (`Full` means its own shape).
+    pub paste_kind: Paste,
+    /// Paste windows in board coordinates: `(centre, square side)`; empty when the pad takes none.
+    pub paste: Vec<(Point, Nm)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -374,6 +425,8 @@ pub mod footprints {
         push(Point::new(Nm::um(5950), -Nm::um(7650)), corner);
         push(Point::new(-Nm::um(5950), -Nm::um(7650)), corner);
         push(Point::new(-Nm::um(5950), Nm::um(2250)), corner);
+        // Datasheet paste pattern for the ground plate: nine 1.45 mm windows at 1.975 mm pitch.
+        pads[48].paste = Paste::Grid { n: 3, cell: Nm::um(1450) };
         Footprint { id: "Redrob_RF_Module:ESP32-C3-MINI-1".into(), pads, courtyard: Rect::centered(Point::ORIGIN, Nm::um(13600), Nm::um(17000)) }
     }
 

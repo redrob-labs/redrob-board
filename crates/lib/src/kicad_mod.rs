@@ -135,7 +135,7 @@ fn parse_pad(p: &Sexp) -> Result<Option<Pad>, KicadModError> {
         return Err(err("surface pad must be on exactly one copper layer"));
     }
 
-    Ok(Some(Pad { number, at: Point::new(x, -y), shape, layers, drill }))
+    Ok(Some(Pad { number, at: Point::new(x, -y), shape, layers, drill, paste: board_layout::Paste::Full }))
 }
 
 fn courtyard_from_graphics(root: &Sexp) -> Result<Option<Rect>, KicadModError> {

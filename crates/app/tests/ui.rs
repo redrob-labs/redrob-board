@@ -88,7 +88,7 @@ fn a_chat_line_becomes_a_fabrication_zip() {
     assert!(h.state().ws.drc_run && h.state().ws.violations.is_empty());
     let bytes = std::fs::read(&zip).unwrap();
     let entries = board_agent::zipfile::read_zip(&bytes).unwrap();
-    assert_eq!(entries.len(), 12);
+    assert_eq!(entries.len(), 14);
     assert!(entries.iter().any(|(n, _)| n == "board-F_Cu.gtl"));
     std::fs::remove_file(&zip).unwrap();
     assert_eq!(server.join().unwrap().len(), 5);

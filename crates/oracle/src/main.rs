@@ -54,6 +54,9 @@ fn main() -> ExitCode {
             .and_then(|_| fab_write("board-F_Mask.gts", export_layer(&f.board, Layer::FrontMask).write()))
             .and_then(|_| fab_write("board-B_Mask.gbs", export_layer(&f.board, Layer::BackMask).write()))
             .and_then(|_| fab_write("board-F_Paste.gtp", export_layer(&f.board, Layer::FrontPaste).write()))
+            .and_then(|_| fab_write("board-B_Paste.gbp", export_layer(&f.board, Layer::BackPaste).write()))
+            .and_then(|_| fab_write("board-F_Silkscreen.gto", export_layer(&f.board, Layer::FrontSilk).write()))
+            .and_then(|_| fab_write("board-B_Silkscreen.gbo", export_layer(&f.board, Layer::BackSilk).write()))
             .and_then(|_| fab_write("board-Edge_Cuts.gm1", export_layer(&f.board, Layer::EdgeCuts).write()))
             .and_then(|_| fab_write("board.drl", export_drill(&f.board)));
         if let Err(e) = result {

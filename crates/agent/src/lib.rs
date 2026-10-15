@@ -76,6 +76,8 @@ pub fn fab_files(board: &Board, netlist: &Netlist) -> Vec<(&'static str, String)
         ("board-B_Mask.gbs", export_layer(board, Layer::BackMask).write()),
         ("board-F_Paste.gtp", export_layer(board, Layer::FrontPaste).write()),
         ("board-B_Paste.gbp", export_layer(board, Layer::BackPaste).write()),
+        ("board-F_Silkscreen.gto", export_layer(board, Layer::FrontSilk).write()),
+        ("board-B_Silkscreen.gbo", export_layer(board, Layer::BackSilk).write()),
         ("board-Edge_Cuts.gm1", export_layer(board, Layer::EdgeCuts).write()),
         ("board.drl", export_drill(board)),
         ("bom.csv", bom_csv(netlist)),
@@ -230,7 +232,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("board-agent-{}", std::process::id()));
         let r = run_tool(ToolCall::ExportFab { board, netlist, dir: dir.display().to_string() });
         let ToolResult::Exported { files } = r else { panic!("{r:?}") };
-        assert_eq!(files.len(), 12);
+        assert_eq!(files.len(), 14);
         assert!(dir.join("bom.csv").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
