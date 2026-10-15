@@ -43,7 +43,7 @@ Redrob Silicon이 칩 안을, Redrob Board가 칩 사이를 맡는다. 둘은 �
 | board-sim | SPICE급 회로 시뮬(선형 + 단순 비선형). 전원·바이어스 검증 | ngspice(CI 오라클) |
 | board-render | wgpu 레이어 뷰어, 3D 보드 미리보기 | — |
 | board-agent | 엔진 도구 정의: write_schematic, pick_parts, place, route, drc, export, order | redrob-engine-client |
-| board-app | egui/eframe 앱. 웹 빌드는 wasm | cadcraft·launcher 구조 |
+| redrob-board (crates/app) | egui/eframe 앱. 웹 빌드는 wasm | cadcraft·launcher 구조 |
 
 ## 단계
 
@@ -54,7 +54,7 @@ Redrob Silicon이 칩 안을, Redrob Board가 칩 사이를 맡는다. 둘은 �
 | 2 | 배치 | board-place. 커넥터 가장자리·열 분리·HPWL | 수동 배치 대비 HPWL -20% 이상 |
 | 3 | 배선 | board-route 단층·양층. 미연결 0 | DRC 0, 완주율 100% (예제 3종) |
 | 4 | 제조 파일 | gerber·drill·bom·cpl. JLCPCB 포맷 | KiCad 거버 뷰어 렌더와 픽셀 일치 |
-| 5 | 앱 MVP | board-app + agent 7도구 + render | 채팅 "ESP32 온습도 센서 노드" -> 거버 ZIP 자동, egui_kittest 스냅샷 |
+| 5 | 앱 MVP | redrob-board(앱) + agent 7도구 + render | 채팅 "ESP32 온습도 센서 노드" -> 거버 ZIP 자동, egui_kittest 스냅샷 |
 | 6 | 첫 발주 | 센서 노드 보드 JLCPCB 발주, 조립 | 보드 켜지고 펌웨어(redrob-code) 올라감 |
 | 7 | NPU 브링업 보드 | Silicon 6단계용. 4층, 전원 시퀀스, 디버그 | 칩 소켓·JTAG 동작 |
 | 8 | 시뮬 + 4층 이상 | board-sim, 차동쌍, 임피던스, 내층 | ngspice 오차 1%, 4층 DRC 0 |

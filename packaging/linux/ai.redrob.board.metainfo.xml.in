@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (software centres, Flathub). Template: package.sh and the Flatpak
+     manifest substitute @VERSION@ and @DATE@ from Cargo.toml and the build date. -->
+<component type="desktop-application">
+  <id>ai.redrob.board</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Redrob Board</name>
+  <summary>Agentic PCB design: place, route, check and export boards</summary>
+  <developer id="ai.redrob">
+    <name>Redrob</name>
+  </developer>
+  <description>
+    <p>
+      Redrob Board turns a netlist into a finished printed circuit board: it places the parts,
+      routes the tracks, runs the design rule check and writes the Gerber, drill, BOM and
+      pick-and-place files a board house needs.
+    </p>
+    <ul>
+      <li>Text-first: every design file is plain data that diffs in git</li>
+      <li>Placement and routing engines with a design rule checker whose verdict is the exit code</li>
+      <li>Fabrication output checked pixel for pixel against an independent oracle in CI</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">ai.redrob.board.desktop</launchable>
+  <icon type="stock">ai.redrob.board</icon>
+  <!-- Only url types known to appstream 0.15 (Ubuntu 22.04, where CI validates): no vcs-browser. -->
+  <url type="homepage">https://redrob.ai</url>
+  <url type="bugtracker">https://github.com/redrob-labs/redrob-board/issues</url>
+  <url type="help">https://github.com/redrob-labs/redrob-board</url>
+  <categories>
+    <category>Development</category>
+    <category>Electronics</category>
+    <category>Engineering</category>
+  </categories>
+  <keywords>
+    <keyword>pcb</keyword>
+    <keyword>eda</keyword>
+    <keyword>gerber</keyword>
+    <keyword>redrob</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#eef4ff</color>
+    <color type="primary" scheme_preference="dark">#0a0b0c</color>
+  </branding>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <provides>
+    <binary>redrob-board</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

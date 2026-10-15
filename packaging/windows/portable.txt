@@ -1,0 +1,5 @@
+Redrob Board portable build
+
+This archive is the portable build of Redrob Board: redrob-board.exe runs from any folder with
+no installer and writes nothing to the registry. Settings live in the usual per-user folder
+(%APPDATA%\Redrob Board), as with the installed version.

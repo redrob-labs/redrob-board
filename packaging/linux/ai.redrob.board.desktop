@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Redrob Board
+GenericName=PCB Designer
+Comment=Agentic PCB design: place, route, check and export boards
+Exec=redrob-board
+TryExec=redrob-board
+Icon=ai.redrob.board
+Terminal=false
+StartupNotify=true
+StartupWMClass=redrob-board
+Categories=Development;Electronics;Engineering;
+Keywords=redrob;pcb;eda;board;gerber;routing;

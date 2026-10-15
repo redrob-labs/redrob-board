@@ -31,7 +31,7 @@ JavaScript 없음, 웹뷰 없음, 외부 EDA 바이너리 없음. 상류 도구(
 ```sh
 cargo test --workspace
 cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
-cargo run -p board-app          # 데스크톱 앱
+cargo run -p redrob-board         # 데스크톱 앱
 ```
 
 ## 상태

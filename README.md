@@ -35,7 +35,7 @@ called done. Nothing of theirs ships in the product. See [UPSTREAM.md](./UPSTREA
 ```sh
 cargo test --workspace
 cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
-cargo run -p board-app          # the desktop app
+cargo run -p redrob-board         # the desktop app
 ```
 
 ## Status

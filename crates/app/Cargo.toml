@@ -1,5 +1,5 @@
 [package]
-name = "board-app"
+name = "redrob-board"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,6 +7,7 @@ rust-version.workspace = true
 repository.workspace = true
 description = "Redrob Board desktop app (egui): place, route, check and export from one window"
 default-run = "redrob-board"
+build = "build.rs"
 
 [dependencies]
 board-units = { workspace = true }
@@ -23,8 +24,16 @@ eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "waylan
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 
+[build-dependencies]
+# Icon + VERSIONINFO for redrob-board.exe; build.rs only uses it when targeting Windows.
+winresource = "0.1"
+
 [lints]
 workspace = true
+
+[lib]
+name = "board_app"
+path = "src/lib.rs"
 
 [[bin]]
 name = "redrob-board"
