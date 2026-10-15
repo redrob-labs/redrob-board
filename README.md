@@ -53,8 +53,18 @@ reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come fro
 `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
 runs the whole flow and exits 0 only when routing is complete and DRC is clean; `redrob-board`
 (egui) does the same from buttons, and a headless `egui_kittest` test drives those buttons and
-compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. Stages and their
+compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. The sensor node
+uses the ESP32-C3-MINI-1 and AHT20 land patterns and pin numbers from their datasheets (the module
+footprint is checked pad for pad against Espressif's own KiCad footprint). Stages and their
 mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).
+
+## Install
+
+Releases carry a signed and notarized macOS disk image (universal), signed Windows installers
+and portable zips (x64, arm64) and Linux AppImage/deb/rpm/tar.gz (x86_64, aarch64):
+[github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
+A `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds every job from one commit and
+drafts the release; the packaging scripts live in `packaging/`.
 
 ## License
 

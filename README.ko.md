@@ -44,7 +44,16 @@ cargo run -p redrob-board         # 데스크톱 앱
 CSV는 `board-bom`이 냅니다. `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`이
 전체 흐름을 돌려 배선 완주·DRC 0일 때만 종료 코드 0을 냅니다. `redrob-board`(egui) 앱은 같은 일을 버튼으로 하고,
 헤드리스 `egui_kittest` 테스트가 그 버튼들을 눌러 렌더 결과를 `crates/app/tests/snapshots/sensor_node_routed.png`와 비교합니다.
-단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
+센서 노드는 ESP32-C3-MINI-1과 AHT20의 데이터시트 랜드 패턴과 핀 번호를 씁니다(모듈 풋프린트는 Espressif 공식 KiCad
+풋프린트와 패드 단위로 대조). 단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
+
+## 설치
+
+릴리즈에는 서명·공증된 macOS 디스크 이미지(universal), 서명된 Windows 설치 파일과 포터블 zip(x64·arm64),
+Linux AppImage/deb/rpm/tar.gz(x86_64·aarch64)가 있습니다:
+[github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
+`vX.Y.Z` 태그가 `.github/workflows/release.yml`을 돌려 한 커밋에서 모든 잡을 빌드하고 드래프트 릴리즈를 만듭니다.
+패키징 스크립트는 `packaging/`에 있습니다.
 
 ## 라이선스
 
