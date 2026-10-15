@@ -22,7 +22,7 @@ egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
 
 [dev-dependencies]
-egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
 
 [build-dependencies]
 # Icon + VERSIONINFO for redrob-board.exe; build.rs only uses it when targeting Windows.

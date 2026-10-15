@@ -7,7 +7,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
 fn harness<'a>() -> Harness<'a, BoardApp> {
-    Harness::builder().with_size(egui::vec2(1100.0, 720.0)).build_ui_state(|ui, app: &mut BoardApp| app.ui(ui), BoardApp::default())
+    // Through eframe's `App::ui`, margin-free like the shipped window, so the snapshot is the window.
+    Harness::builder().with_size(egui::vec2(1100.0, 720.0)).build_eframe(|_cc| BoardApp::default())
 }
 
 #[test]
