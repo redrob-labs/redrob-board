@@ -4,6 +4,8 @@
 
 English: [README.md](./README.md)
 
+![Redrob Board v0.1.0: 센서 노드 배치·배선·DRC 통과](docs/img/app-sensor-node.png)
+
 ## 무엇인가
 
 Rust로 쓴 회로에서 거버·드릴·BOM·픽앤플레이스 파일까지, 한 Rust 워크스페이스로 처음부터 만들었습니다.
