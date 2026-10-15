@@ -55,7 +55,13 @@ reader: 42 of 42 files are pixel-identical. BOM and pick-and-place CSVs come fro
 `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
 runs the whole flow and exits 0 only when routing is complete and DRC is clean; `redrob-board`
 (egui) does the same from buttons, and a headless `egui_kittest` test drives those buttons and
-compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. The sensor node
+compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. The app's
+AGENT palette talks to the shared Redrob Code engine (`redrob-engine-client`) with ten caller-owned
+tools (`board-agent`: catalog, write_schematic, place, route, drc, export_zip, ...): the engine
+names a tool, the app runs it on the open design. A spec -- MCU, I2C sensors, power, extras --
+becomes a netlist by rules (`board-catalog`, parts with MPN, LCSC number and reference price), and
+a second headless test types one chat line and ends with a fabrication ZIP on disk, DRC clean,
+with a scripted engine standing in for the model. The sensor node
 uses the ESP32-C3-MINI-1 and AHT20 land patterns and pin numbers from their datasheets (the module
 footprint is checked pad for pad against Espressif's own KiCad footprint). Stages and their
 mechanical pass conditions are in [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md).

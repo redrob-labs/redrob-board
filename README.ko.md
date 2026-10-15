@@ -46,6 +46,10 @@ cargo run -p redrob-board         # 데스크톱 앱
 CSV는 `board-bom`이 냅니다. `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`이
 전체 흐름을 돌려 배선 완주·DRC 0일 때만 종료 코드 0을 냅니다. `redrob-board`(egui) 앱은 같은 일을 버튼으로 하고,
 헤드리스 `egui_kittest` 테스트가 그 버튼들을 눌러 렌더 결과를 `crates/app/tests/snapshots/sensor_node_routed.png`와 비교합니다.
+앱의 AGENT 팔레트는 공유 Redrob Code 엔진(`redrob-engine-client`)과 대화하며, 호출자 소유 도구 10개(`board-agent`:
+catalog·write_schematic·place·route·drc·export_zip 등)를 선언합니다: 엔진이 도구를 고르고 앱이 열린 설계 위에서 실행합니다.
+사양(MCU·I2C 센서·전원·부가)은 규칙으로 넷리스트가 되고(`board-catalog`, MPN·LCSC 번호·참고 단가), 두 번째 헤드리스
+테스트는 채팅 한 줄을 입력해 디스크의 제조 ZIP과 DRC 0으로 끝납니다(모델 자리는 각본대로 답하는 가짜 엔진).
 센서 노드는 ESP32-C3-MINI-1과 AHT20의 데이터시트 랜드 패턴과 핀 번호를 씁니다(모듈 풋프린트는 Espressif 공식 KiCad
 풋프린트와 패드 단위로 대조). 단계와 기계적 통과 조건은 [docs/ROADMAP.ko.md](docs/ROADMAP.ko.md)에 있습니다.
 

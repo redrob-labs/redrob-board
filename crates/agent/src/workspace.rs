@@ -14,7 +14,7 @@ use board_netlist::Netlist;
 use board_place::Edge;
 use serde_json::{Value, json};
 
-use crate::{drc_design, example_design, example_names, export_fab, place_design, route_design};
+use crate::{drc_design, example_design, example_names, export_fab, export_zip, place_design, route_design};
 
 /// The design the user and the engine both work on.
 #[derive(Clone, Debug, Default)]
@@ -94,6 +94,11 @@ pub fn tool_specs() -> Vec<ToolSpec> {
             parameters: no_args(),
         },
         ToolSpec { name: "drc", description: "Run the design rule check on the board and return the verdict and violations.", parameters: no_args() },
+        ToolSpec {
+            name: "export_zip",
+            description: "Write every fabrication file (Gerbers, Excellon drill, BOM, pick-and-place) as one ZIP archive, the upload a board house takes.",
+            parameters: json!({"type": "object", "required": ["path"], "properties": {"path": {"type": "string", "description": "Archive path, e.g. fab/sensor-node.zip"}}, "additionalProperties": false}),
+        },
         ToolSpec {
             name: "export_fab",
             description: "Write the fabrication files (Gerbers, Excellon drill, BOM, pick-and-place) for the board into a directory.",
@@ -207,6 +212,13 @@ impl Workspace {
         Ok(json!({"dir": dir, "files": files}))
     }
 
+    pub fn export_zip(&mut self, path: &str) -> Result<Value, String> {
+        let (Some(board), Some(netlist)) = (&self.board, &self.netlist) else { return Err("nothing to export: place first".into()) };
+        let n = export_zip(board, netlist, Path::new(path)).map_err(|e| e.to_string())?;
+        let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        Ok(json!({"path": path, "files": n, "bytes": bytes}))
+    }
+
     /// Run a tool by name with JSON arguments; the result is what goes back as the `tool` message.
     pub fn run(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         let str_arg =
@@ -256,6 +268,7 @@ impl Workspace {
             "route" => self.route(),
             "drc" => self.drc(),
             "export_fab" => self.export_fab(&str_arg("dir")?),
+            "export_zip" => self.export_zip(&str_arg("path")?),
             other => Err(format!("unknown tool `{other}`")),
         }
     }
@@ -268,7 +281,7 @@ mod tests {
     #[test]
     fn specs_are_valid_openai_tools() {
         let specs = tool_specs();
-        assert_eq!(specs.len(), 9);
+        assert_eq!(specs.len(), 10);
         for s in &specs {
             let v = s.to_openai();
             assert_eq!(v["type"], "function");
@@ -327,6 +340,13 @@ mod tests {
         let d = w.run("drc", &json!({})).unwrap();
         assert_eq!(d["clean"], true, "{d}");
         assert!(w.run("write_schematic", &json!({"mcu": "aht20"})).unwrap_err().contains("not a Mcu"));
+        let zip = std::env::temp_dir().join(format!("board-ws-{}.zip", std::process::id()));
+        let r = w.run("export_zip", &json!({"path": zip.display().to_string()})).unwrap();
+        assert_eq!(r["files"], 12);
+        let entries = crate::zipfile::read_zip(&std::fs::read(&zip).unwrap()).unwrap();
+        assert!(entries.iter().any(|(n, d)| n == "board-F_Cu.gtl" && d.ends_with(b"M02*\n")));
+        assert!(entries.iter().any(|(n, _)| n == "bom.csv"));
+        std::fs::remove_file(&zip).unwrap();
     }
 
     #[test]

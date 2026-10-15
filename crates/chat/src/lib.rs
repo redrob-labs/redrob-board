@@ -290,14 +290,16 @@ pub fn run_tool_calls(ws: &mut Workspace, calls: &[ToolCall]) -> Vec<(String, St
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// A stand-in engine for tests: a one-shot HTTP/1.1 server that answers scripted completions in
+/// order and records every request. Public so the app's headless test can drive the real palette.
+pub mod fake_engine {
+    use serde_json::{Value, json};
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::thread;
 
     /// A one-shot HTTP/1.1 server that answers the given bodies in order and records requests.
-    fn serve(bodies: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
+    pub fn serve(bodies: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let h = thread::spawn(move || {
@@ -334,15 +336,22 @@ mod tests {
         (format!("http://{addr}/v1"), h)
     }
 
-    fn tool_call_reply(calls: &[(&str, &str, &str)]) -> String {
+    pub fn tool_call_reply(calls: &[(&str, &str, &str)]) -> String {
         let tc: Vec<Value> =
             calls.iter().map(|(id, name, args)| json!({"id": id, "type": "function", "function": {"name": name, "arguments": args}})).collect();
         json!({"choices": [{"message": {"role": "assistant", "content": null, "tool_calls": tc}, "finish_reason": "tool_calls"}]}).to_string()
     }
 
-    fn text_reply(t: &str) -> String {
+    pub fn text_reply(t: &str) -> String {
         json!({"choices": [{"message": {"role": "assistant", "content": t}, "finish_reason": "stop"}]}).to_string()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fake_engine::{serve, text_reply, tool_call_reply};
+    use std::thread;
 
     #[test]
     fn parse_text_tool_calls_and_errors() {

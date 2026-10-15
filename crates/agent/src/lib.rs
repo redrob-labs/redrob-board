@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod workspace;
+pub mod zipfile;
 
 use std::path::Path;
 
@@ -65,11 +66,10 @@ pub fn drc_rules() -> Rules {
     Rules { clearance: r.clearance, min_track_width: r.track_width, edge_clearance: r.edge_clearance, ..Rules::default() }
 }
 
-/// Every manufacturing file into `dir`: Gerbers, drill, BOM, pick-and-place, plus the design's
-/// own JSON. Returns the file names written.
-pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Result<Vec<String>> {
-    std::fs::create_dir_all(dir)?;
-    let files: Vec<(&str, String)> = vec![
+/// The manufacturing files as `(name, text)`: Gerbers, drill, BOM, pick-and-place, plus the
+/// design's own JSON.
+pub fn fab_files(board: &Board, netlist: &Netlist) -> Vec<(&'static str, String)> {
+    vec![
         ("board-F_Cu.gtl", export_layer(board, Layer::FrontCopper).write()),
         ("board-B_Cu.gbl", export_layer(board, Layer::BackCopper).write()),
         ("board-F_Mask.gts", export_layer(board, Layer::FrontMask).write()),
@@ -82,13 +82,37 @@ pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Resu
         ("cpl.csv", cpl_csv(board)),
         ("board.json", board.to_json()),
         ("netlist.json", netlist.to_json()),
-    ];
+    ]
+}
+
+/// Every manufacturing file into `dir`. Returns the file names written.
+pub fn export_fab(board: &Board, netlist: &Netlist, dir: &Path) -> std::io::Result<Vec<String>> {
+    std::fs::create_dir_all(dir)?;
     let mut names = Vec::new();
-    for (name, text) in files {
+    for (name, text) in fab_files(board, netlist) {
         std::fs::write(dir.join(name), text)?;
         names.push(name.to_string());
     }
     Ok(names)
+}
+
+/// The manufacturing files as one ZIP archive (the upload a board house takes). Gerbers and drill
+/// sit at the archive root, as the upload forms expect; the BOM, CPL and JSON beside them.
+pub fn fab_zip(board: &Board, netlist: &Netlist) -> Vec<u8> {
+    let files: Vec<(String, Vec<u8>)> = fab_files(board, netlist).into_iter().map(|(n, t)| (n.to_string(), t.into_bytes())).collect();
+    let mut out = Vec::new();
+    zipfile::write_zip(&mut out, &files).expect("writing to a Vec cannot fail");
+    out
+}
+
+/// Write the ZIP archive to `path`; returns the number of files inside.
+pub fn export_zip(board: &Board, netlist: &Netlist, path: &Path) -> std::io::Result<usize> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let n = fab_files(board, netlist).len();
+    std::fs::write(path, fab_zip(board, netlist))?;
+    Ok(n)
 }
 
 /// JSON envelope: what an engine sends.

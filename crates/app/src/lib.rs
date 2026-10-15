@@ -112,6 +112,13 @@ impl BoardApp {
         self
     }
 
+    /// Talk to an engine at `base` (any OpenAI-compatible server) instead of the shared daemon.
+    pub fn with_engine(mut self, client: board_chat::ChatClient) -> Self {
+        self.chat.tried = true;
+        self.chat.agent = Some(board_chat::Agent::spawn(client));
+        self
+    }
+
     fn note(&mut self, r: Result<serde_json::Value, String>, ok: impl Fn(&serde_json::Value) -> String) {
         match r {
             Ok(v) => self.log.push(ok(&v)),
@@ -567,6 +574,7 @@ impl BoardApp {
                 let enabled = self.chat.agent.is_some() && !busy;
                 let edit = egui::TextEdit::singleline(&mut self.chat.input).hint_text("Ask the agent").desired_width(ui.available_width() - 56.0);
                 let resp = ui.add_enabled(enabled, edit);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, enabled, "Ask the agent"));
                 let submit = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let send = ui.add_enabled(enabled, egui::Button::new("Send")).clicked();
                 if (submit || send) && !self.chat.input.trim().is_empty() {
