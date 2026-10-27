@@ -32,7 +32,7 @@ JavaScript 없음, 웹뷰 없음, 외부 EDA 바이너리 없음. 상류 도구(
 
 ```sh
 cargo test --workspace
-cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
+cargo run -p redrob-board -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
 cargo run -p redrob-board         # 데스크톱 앱
 ```
 
@@ -43,7 +43,7 @@ cargo run -p redrob-board         # 데스크톱 앱
 일치. 배치 엔진은 14부품 센서 노드를 겹침 없이, 손 배치보다 배선 길이 54% 짧게 놓습니다(게이트 20%). 라우터는 분배기와 센서 노드
 두 배치를 2층으로 끝까지 배선해 DRC 위반 0이고, KiCad도 배선된 센서 노드를 깨끗하다고 판정합니다. 우리 거버(동박·마스크·페이스트·외곽)와 드릴 파일은
 같은 보드를 KiCad가 그린 것과 우리 리더로 10um 래스터화해 비교합니다: 동박·마스크·페이스트(모듈 접지판의 페이스트 창 격자 포함)·외곽·드릴 48개 파일 전부 픽셀 일치, 실크(자체 선 폰트 참조기호)는 느슨한 일치(위치·좌우·잉크량 2배 이내). BOM·픽앤플레이스
-CSV는 `board-bom`이 냅니다. `board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`이
+CSV는 `board-bom`이 냅니다. `redrob-board pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`이
 전체 흐름을 돌려 배선 완주·DRC 0일 때만 종료 코드 0을 냅니다. `redrob-board`(egui) 앱은 같은 일을 버튼으로 하고,
 헤드리스 `egui_kittest` 테스트가 그 버튼들을 눌러 렌더 결과를 `crates/app/tests/snapshots/sensor_node_routed.png`와 비교합니다.
 앱의 AGENT 팔레트는 공유 Redrob Code 엔진(`redrob-engine-client`)과 대화하며, 호출자 소유 도구 10개(`board-agent`:
@@ -57,7 +57,7 @@ catalog·write_schematic·place·route·drc·export_zip 등)를 선언합니다:
 차동쌍, 길이 매칭 그룹, 내층 GND·전원 플레인이 있는 4층 보드(다른 넷 주변 존 채움, 섬·조각 제거; 내층 거버(G36/G37 영역)가
 KiCad 플롯과 픽셀 일치, KiCad DRC 0), 자체 스트로크 폰트 실크와 모듈 플레이트 페이스트 창, `board-sim`(넷리스트의 선형 DC 동작점·AC
 소신호, `oracle` 워크플로 `sim` 잡에서 ngspice와 1% 이내 일치, `simulate` 도구와 레일 검사), 3D 미리보기(코트야드 위 상자 부품, 드래그
-회전), 브라우저 빌드, 보드 하우스 패키지: `export_zip`이 JLCPCB·PCBWay 리더가 기대하는 이름으로 파일을 쓰고 주문 시트(층수·크기·규칙·LCSC
+회전), 보드 하우스 패키지: `export_zip`이 JLCPCB·PCBWay 리더가 기대하는 이름으로 파일을 쓰고 주문 시트(층수·크기·규칙·LCSC
 재고 커버·업로드 위치)를 아카이브에 넣습니다. 앱의 ORDER 팔레트는 Labs 스위치(`REDROB_BOARD_LABS=order` 또는 Labs 체크박스)이고 꺼져
 있으면 그리지 않습니다. 주문 버튼은 없습니다: 두 하우스 모두 판매자 계정 없는 공개 주문 API가 없어서, 패키지와 시트가 인계점입니다.
 
@@ -67,8 +67,7 @@ KiCad 플롯과 픽셀 일치, KiCad DRC 0), 자체 스트로크 폰트 실크�
 Linux AppImage/deb/rpm/tar.gz(x86_64·aarch64)가 있습니다:
 [github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
 `vX.Y.Z` 태그가 `.github/workflows/release.yml`을 돌려 한 커밋에서 모든 잡을 빌드하고 릴리즈를 발행합니다.
-패키징 스크립트는 `packaging/`에 있습니다. 릴리즈에는 브라우저 빌드(`redrob-board-web-<버전>.zip`, 정적 WebAssembly 사이트,
-호스팅 안내는 `packaging/web/README.md`)도 들어갑니다: 엔진 없는 같은 창이라 AGENT 팔레트가 그 사실을 말합니다.
+패키징 스크립트는 `packaging/`에 있습니다.
 
 ## 라이선스
 

@@ -1,4 +1,4 @@
-//! `board-gerber-compare <ours> <theirs> [pitch_um]` rasterises two Gerber files (or two Excellon
+//! `redrob-board gerber-compare <ours> <theirs> [pitch_um]` rasterises two Gerber files (or two Excellon
 //! files, when both end in `.drl`) and exits 0 only when they are pixel-for-pixel (hole-for-hole)
 //! identical. Both files are read with this crate's own reader; nothing else is trusted.
 //!
@@ -12,10 +12,9 @@ use std::process::ExitCode;
 use board_gerber::{GerberFile, parse_drill};
 use board_units::Nm;
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+pub fn main(args: &[String]) -> ExitCode {
     if args.len() < 2 || args.len() > 3 {
-        eprintln!("usage: board-gerber-compare <ours> <theirs> [pitch_um]");
+        eprintln!("usage: redrob-board gerber-compare <ours> <theirs> [pitch_um]");
         return ExitCode::from(2);
     }
     let read = |p: &str| std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"));
@@ -65,7 +64,7 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
         Err(e) => {
-            eprintln!("board-gerber-compare: {e}");
+            eprintln!("redrob-board gerber-compare: {e}");
             ExitCode::from(2)
         }
     }

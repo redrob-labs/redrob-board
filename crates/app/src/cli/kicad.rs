@@ -1,4 +1,4 @@
-//! `board-kicad-export <board.json> <netlist.json> <outdir> [rules.json]` writes
+//! `redrob-board kicad-export <board.json> <netlist.json> <outdir> [rules.json]` writes
 //! `<outdir>/board.kicad_pcb` and `<outdir>/board.kicad_pro` for the oracle run.
 
 use std::process::ExitCode;
@@ -8,10 +8,9 @@ use board_kicad::{export_pcb, export_pcb_with_fills, export_project};
 use board_layout::Board;
 use board_netlist::Netlist;
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+pub fn main(args: &[String]) -> ExitCode {
     if args.len() < 3 || args.len() > 4 {
-        eprintln!("usage: board-kicad-export <board.json> <netlist.json> <outdir> [rules.json]");
+        eprintln!("usage: redrob-board kicad-export <board.json> <netlist.json> <outdir> [rules.json]");
         return ExitCode::from(2);
     }
     let run = || -> Result<(), String> {
@@ -35,7 +34,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("board-kicad-export: {e}");
+            eprintln!("redrob-board kicad-export: {e}");
             ExitCode::from(2)
         }
     }

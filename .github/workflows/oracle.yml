@@ -1,12 +1,10 @@
 name: oracle
 
 # Stage gates that compare our tools with an external oracle. The oracle is installed on the runner
-# only; nothing from it ships. A stage is done when this job is green.
+# only; nothing from it ships. A stage is done when this job is green. It installs KiCad and
+# ngspice, so it runs by hand (workflow_dispatch) when a stage is checked, not on every pull request.
 
 on:
-  push:
-    branches: [develop, main]
-  pull_request:
   workflow_dispatch:
 
 permissions:

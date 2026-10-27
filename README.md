@@ -36,9 +36,12 @@ called done. Nothing of theirs ships in the product. See [UPSTREAM.md](./UPSTREA
 
 ```sh
 cargo test --workspace
-cargo run -p board-agent --bin board-cli -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
+cargo run -p redrob-board -- pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab
 cargo run -p redrob-board         # the desktop app
 ```
+
+The app binary is also the command line: `redrob-board pipeline | tool | examples | drc |
+kicad-export | gerber-compare` (`redrob-board help`). Each exit code is the verdict.
 
 ## Status
 
@@ -52,7 +55,7 @@ divider and both sensor-node placements on two layers with zero DRC violations, 
 the routed sensor node is clean. Our Gerbers (copper, mask, paste, edge cuts) and Excellon drill
 files are compared with KiCad's plots of the same boards by rasterising both at 10 um with our own
 reader: 48 of 48 copper, mask, paste (with the grid of paste windows on the module ground plate), edge and drill files are pixel-identical, and the silkscreen (reference designators in our own stroke font) matches KiCad's loosely -- same place, same mirror, same ink within a factor of two. BOM and pick-and-place CSVs come from `board-bom`.
-`board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
+`redrob-board pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out fab`
 runs the whole flow and exits 0 only when routing is complete and DRC is clean; `redrob-board`
 (egui) does the same from buttons, and a headless `egui_kittest` test drives those buttons and
 compares the rendered frame to `crates/app/tests/snapshots/sensor_node_routed.png`. The app's
@@ -72,7 +75,7 @@ nets, islands and slivers dropped; our inner-layer Gerbers with G36/G37 regions 
 to KiCad's plots and KiCad's DRC stays at zero), silkscreen in our own stroke font and paste windows
 on module plates, `board-sim` (linear DC operating point and AC small-signal of the netlist, checked
 against ngspice within 1% in the `oracle` workflow's `sim` job, with a `simulate` tool and rail
-checks), a 3D preview (parts as boxes over their courtyards, drag to turn), a browser build, and
+checks), a 3D preview (parts as boxes over their courtyards, drag to turn), and
 board-house packages: `export_zip` names the files the way JLCPCB or PCBWay's reader expects and
 puts an order sheet (layers, size, rules, LCSC stock coverage, where to upload) in the archive. The
 app's ORDER palette is a Labs switch (`REDROB_BOARD_LABS=order` or the Labs checkbox) and is not
@@ -86,9 +89,7 @@ Releases carry a signed and notarized macOS disk image (universal), signed Windo
 and portable zips (x64, arm64) and Linux AppImage/deb/rpm/tar.gz (x86_64, aarch64):
 [github.com/redrob-labs/redrob-board/releases](https://github.com/redrob-labs/redrob-board/releases).
 A `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds every job from one commit and
-publishes the release; the packaging scripts live in `packaging/`. The release also carries a
-browser build (`redrob-board-web-<version>.zip`, a static WebAssembly site; `packaging/web/README.md`
-has the hosting notes): the same window without the engine, so the AGENT palette says so.
+publishes the release; the packaging scripts live in `packaging/`.
 
 ## License
 
