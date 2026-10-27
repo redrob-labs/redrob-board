@@ -17,8 +17,6 @@ on:
     # what happened in a sibling repository when the default moved to `develop` and three workflows
     # kept filtering on `[main, master]`.
     types: [opened, reopened, edited, synchronize]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

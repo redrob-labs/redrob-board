@@ -1,8 +1,13 @@
+# The one pull-request workflow. On a pull request it compiles once: `cargo fmt --check` and
+# `cargo clippy --workspace --locked -D warnings` without test targets, on Linux. A by-hand run
+# (workflow_dispatch) also lints the test targets and runs every test. A docs-only pull request
+# skips the Rust job; a skipped job still satisfies its check.
+#
+# Runs on pull requests only: a push to develop is the merge of a pull request that already passed,
+# and the release workflow builds every target again from the tag.
 name: CI
 
 on:
-  push:
-    branches: [develop, main]
   pull_request:
   workflow_dispatch:
 
@@ -12,19 +17,39 @@ env:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      heavy: ${{ steps.classify.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          heavy=true
+          if [ -n "$BASE_SHA" ] && ! git diff --name-only "$BASE_SHA" HEAD | grep -qvE '(\.md$|^docs/|^LICENSE)'; then
+            heavy=false
+          fi
+          echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
+
   test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: fmt, clippy, test
+    needs: changes
+    # A failed classifier never skips the gate.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -32,14 +57,18 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Desktop build deps and a software Vulkan driver for the headless UI snapshot
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libxcb1-dev libx11-dev libgl-dev mesa-vulkan-drivers
       - name: Format
-        if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
-      - name: Clippy
+      - name: Clippy (compile once)
+        if: github.event_name == 'pull_request'
+        run: cargo clippy --workspace --locked -- -D warnings
+      # Test targets and the tests: by-hand runs only.
+      - name: Clippy, all targets
+        if: github.event_name != 'pull_request'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
+        if: github.event_name != 'pull_request'
         run: cargo test --workspace --locked
