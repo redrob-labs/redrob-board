@@ -524,7 +524,7 @@ impl BoardApp {
     fn connect_agent(&mut self) {
         if !self.chat.tried {
             self.chat.tried = true;
-            self.chat.unavailable = Some("The agent needs the desktop app: the browser build has no engine connection.".into());
+            self.chat.unavailable = Some("The agent is not in this build (the `agent` feature is off).".into());
         }
     }
 

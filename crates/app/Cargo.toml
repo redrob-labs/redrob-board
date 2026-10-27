@@ -21,17 +21,19 @@ board-agent = { workspace = true }
 board-chat = { workspace = true, optional = true }
 serde_json = { workspace = true }
 egui = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
+# The command line (src/cli): `redrob-board pipeline|tool|examples|drc|kicad-export|gerber-compare`.
+board-kicad = { workspace = true }
+board-gerber = { workspace = true }
 
 [features]
-# The AGENT palette (engine connection over the network); off in the browser build.
+# The AGENT palette (engine connection over the network).
 default = ["agent"]
 agent = ["board-chat"]
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-eframe = { workspace = true, features = ["default_fonts", "glow", "x11", "wayland"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-eframe = { workspace = true, features = ["default_fonts", "glow"] }
+# The command line attaches to the console it was started from (src/cli/mod.rs).
+[target.'cfg(windows)'.dependencies]
+winsafe = { version = "0.0.29", default-features = false, features = ["kernel"] }
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }

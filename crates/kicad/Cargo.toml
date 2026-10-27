@@ -23,6 +23,3 @@ board-schematic = { workspace = true }
 [lints]
 workspace = true
 
-[[bin]]
-name = "board-kicad-export"
-path = "src/main.rs"

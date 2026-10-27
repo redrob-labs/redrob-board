@@ -27,6 +27,3 @@ serde_json = { workspace = true }
 [lints]
 workspace = true
 
-[[bin]]
-name = "board-cli"
-path = "src/main.rs"

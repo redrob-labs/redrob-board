@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*", "xtask"]
+members = ["crates/*", "xtask"]
 
 [workspace.package]
 version = "0.2.0"
@@ -54,8 +54,3 @@ opt-level = 1
 lto = "thin"
 codegen-units = 1
 
-[profile.wasm-release]
-inherits = "release"
-opt-level = "s"
-lto = "fat"
-strip = "debuginfo"

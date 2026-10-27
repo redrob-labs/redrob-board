@@ -43,7 +43,7 @@ Redrob Silicon이 칩 안을, Redrob Board가 칩 사이를 맡는다. 둘은 �
 | board-sim | SPICE급 회로 시뮬(선형 + 단순 비선형). 전원·바이어스 검증 | ngspice(CI 오라클) |
 | board-render | wgpu 레이어 뷰어, 3D 보드 미리보기 | — |
 | board-agent | 엔진 도구 정의: write_schematic, pick_parts, place, route, drc, export, order | redrob-engine-client |
-| redrob-board (crates/app) | egui/eframe 앱. 웹 빌드는 wasm | cadcraft·launcher 구조 |
+| redrob-board (crates/app) | egui/eframe 앱. 같은 실행 파일이 명령줄(`redrob-board pipeline` 등) | cadcraft·launcher 구조 |
 
 ## 단계
 

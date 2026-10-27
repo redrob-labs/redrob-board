@@ -1,4 +1,4 @@
-//! `board-drc <board.json> <netlist.json> [rules.json]` -- exit 0 when clean, 1 when any rule is
+//! `redrob-board drc <board.json> <netlist.json> [rules.json]` -- exit 0 when clean, 1 when any rule is
 //! violated, 2 on a usage or read error. The exit code is the gate; the text is for humans.
 
 use std::process::ExitCode;
@@ -7,10 +7,9 @@ use board_drc::{Rules, check, summary};
 use board_layout::Board;
 use board_netlist::Netlist;
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+pub fn main(args: &[String]) -> ExitCode {
     if args.len() < 2 || args.len() > 3 {
-        eprintln!("usage: board-drc <board.json> <netlist.json> [rules.json]");
+        eprintln!("usage: redrob-board drc <board.json> <netlist.json> [rules.json]");
         return ExitCode::from(2);
     }
     let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
@@ -25,7 +24,7 @@ fn main() -> ExitCode {
     };
     match run() {
         Err(e) => {
-            eprintln!("board-drc: {e}");
+            eprintln!("redrob-board drc: {e}");
             ExitCode::from(2)
         }
         Ok(violations) if violations.is_empty() => {

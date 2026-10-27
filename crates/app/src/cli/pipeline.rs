@@ -1,9 +1,9 @@
-//! `board-cli` -- the whole flow from the terminal, exit code = verdict.
+//! `redrob-board pipeline | tool | examples` -- the whole flow from the terminal, exit code = verdict.
 //!
 //! ```text
-//! board-cli pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out DIR
-//! board-cli tool '<json ToolCall>'          # one tool call, JSON result on stdout
-//! board-cli examples
+//! redrob-board pipeline --design sensor-node --outline 30x25 --edge J1=left --edge SW1=right --out DIR
+//! redrob-board tool '<json ToolCall>'          # one tool call, JSON result on stdout
+//! redrob-board examples
 //! ```
 //! `pipeline` runs place -> route -> DRC -> export and exits 0 only when routing completed and
 //! DRC is clean.
@@ -16,8 +16,7 @@ use board_designs::library;
 use board_drc::summary;
 use board_place::Edge;
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+pub fn main(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("examples") => {
             for n in example_names() {
@@ -32,7 +31,7 @@ fn main() -> ExitCode {
         Some("pipeline") => pipeline(&args[1..]),
         _ => {
             eprintln!(
-                "usage: board-cli examples | tool '<json>' | pipeline --design NAME --outline WxH [--edge REF=left|right|top|bottom]... [--seed N] --out DIR"
+                "usage: redrob-board examples | tool '<json>' | pipeline --design NAME --outline WxH [--edge REF=left|right|top|bottom]... [--seed N] --out DIR"
             );
             ExitCode::from(2)
         }
