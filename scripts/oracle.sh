@@ -6,12 +6,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-target/oracle}"
 rm -rf "$OUT"
-cargo build -q -p board-oracle -p board-kicad -p board-gerber
+cargo build -q -p board-oracle -p redrob-board
 BIN=target/debug
 "$BIN/board-fixtures" "$OUT"
 for board in "$OUT"/*.board.json; do
   name="$(basename "$board" .board.json)"
-  "$BIN/board-kicad-export" "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"
+  "$BIN/redrob-board" kicad-export "$board" "$OUT/$name.netlist.json" "$OUT/$name" "$OUT/rules.json"
   (cd "$OUT/$name" && kicad-cli pcb drc --format json --severity-all --units mm -o drc.json board.kicad_pcb >/dev/null)
   mkdir -p "$OUT/$name/fab"
   kicad-cli pcb export gerbers --layers F.Cu,In1.Cu,In2.Cu,B.Cu,Edge.Cuts,F.Mask,B.Mask,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen --no-x2 --no-netlist -o "$OUT/$name/fab/" "$OUT/$name/fills/board.kicad_pcb" >/dev/null
@@ -22,7 +22,7 @@ status=0
 for fab in "$OUT"/*.fab; do
   name="$(basename "$fab" .fab)"
   for f in "$fab"/*; do
-    "$BIN/board-gerber-compare" "$f" "$OUT/$name/fab/$(basename "$f")" || status=1
+    "$BIN/redrob-board" gerber-compare "$f" "$OUT/$name/fab/$(basename "$f")" || status=1
   done
 done
 exit $status
